@@ -110,9 +110,6 @@
     <Content Include="lib\UnityEngine.UI.dll" />
     <Content Include="lib\UnityScript.Lang.dll" />
   </ItemGroup>
-  <ItemGroup>
-    <None Include="LICENSE.MD" />
-  </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <PropertyGroup>
     <PostBuildEvent>mkdir "E:\Games\Steam\steamapps\common\SubnauticaZero\BepInEx\plugins\$(TargetName)"
