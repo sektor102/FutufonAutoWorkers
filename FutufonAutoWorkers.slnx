@@ -1,0 +1,9 @@
+<Solution>
+  <Configurations>
+    <Platform Name="Any CPU" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Project Path="FutufonAutoWorkers/FutufonAutoWorkers.csproj" Id="d69b5c93-3cf3-4248-9d99-92412267bc9d">
+    <Platform Solution="*|x86" Project="x86" />
+  </Project>
+</Solution>
