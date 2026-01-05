@@ -9,7 +9,7 @@ using HutongGames.PlayMaker;
 
 namespace FutufonAutoWorker
 {
-    [BepInPlugin("com.futufon.autoworker", "Futufon AutoWorker (autofocus10)", "0.3.5")]
+    [BepInPlugin("com.futufon.autoworker", "Futufon AutoWorker (autofocus9)", "0.3.3")]
     public class Plugin : BaseUnityPlugin
     {
         private bool _busy;
@@ -59,7 +59,7 @@ private ConfigEntry<float> FindRadius;
 TeleportYOffset = Config.Bind("Auto", "TeleportYOffset", 0.02f, "Small Y offset when teleporting to triggers");
             DebugLog = Config.Bind("Debug", "DebugLog", true, "Verbose logs");
 
-            Log("Loaded autofocus10. F8 toggle automation, F5 debug PROCEED, F7 debug package, F9 dump FSMs.");
+            Log("Loaded autofocus7. F8 toggle automation, F5 debug PROCEED, F7 debug package, F9 dump FSMs.");
         }
 
         private void Update()
@@ -157,10 +157,33 @@ TeleportYOffset = Config.Bind("Auto", "TeleportYOffset", 0.02f, "Small Y offset 
                     GameObject charger = null;
                     GameObject manual = null;
 
-                    yield return EnsureSpawned("plastic tray(Clone)", _pickTrays, _srcTrays, o => tray = o);
-                    yield return EnsureSpawned("package(Clone)", _pickSheets, _srcSheets, o => pack = o);
-                    yield return EnsureSpawned("charger(Clone)", _pickChargers, _srcChargers, o => charger = o);
-                    yield return EnsureSpawned("manual(Clone)", _pickManuals, _srcManuals, o => manual = o);
+                    GameObject chargersBox = null;
+                    GameObject manualsBox = null;
+                    GameObject traysBox = null;
+                    GameObject sheetsBox = null;
+
+                    yield return EnsureSpawned("chargers box(Clone)", _pickChargers, null, r => chargersBox = r);
+                    yield return EnsureSpawned("packaging sheets(Clone)", _pickSheets, null, r => sheetsBox = r);
+                    yield return EnsureSpawned("manuals box(Clone)", _pickManuals, null, r => manualsBox = r);
+                    yield return EnsureSpawned("plastic trays(Clone)", _pickTrays, null, r => traysBox = r);
+
+                    // Подтаскиваем коробки ближе к игроку - спавн предметов обычно идёт рядом с персонажем
+                    TeleportNearPlayer(chargersBox);
+                    TeleportNearPlayer(sheetsBox);
+                    TeleportNearPlayer(manualsBox);
+                    TeleportNearPlayer(traysBox);
+                    yield return WaitSeconds(SpawnWaitSec.Value);
+
+                    // Открываем то, что открывается (chargers/manuals)
+                    yield return EnsureBoxOpened(chargersBox);
+                    yield return EnsureBoxOpened(manualsBox);
+
+                    // Достаём предметы из коробок/листов
+                    yield return EnsureSpawned("charger(Clone)", chargersBox, null, r => charger = r);
+                    yield return EnsureSpawned("package(Clone)", sheetsBox, null, r => pack = r);
+                    yield return EnsureSpawned("manual(Clone)", manualsBox, null, r => manual = r);
+                    yield return EnsureSpawned("plastic tray(Clone)", traysBox, null, r => tray = r);
+
                     Log(string.Format("Auto: have items tray={0}, pack={1}, charger={2}, manual={3}",
                         Short(tray), Short(pack), Short(charger), Short(manual)));
 
@@ -261,6 +284,7 @@ TeleportYOffset = Config.Bind("Auto", "TeleportYOffset", 0.02f, "Small Y offset 
 
         private IEnumerator SendEventThenWait(GameObject go, string fsmName, string ev, float waitSec)
         {
+            yield return AimAt(go);
             SendEventToFsm(go, fsmName, ev);
             yield return new WaitForSeconds(Mathf.Max(0.05f, waitSec));
         }
@@ -283,207 +307,239 @@ TeleportYOffset = Config.Bind("Auto", "TeleportYOffset", 0.02f, "Small Y offset 
             Log("Auto: tray inserted into package");
         }
 
-        private IEnumerator EnsureSpawned(string itemName, GameObject pick, GameObject openOwner, Action<GameObject> setFound, int tries = 6)
-{
-    if (pick == null)
-    {
-        Log($"EnsureSpawned: {itemName} pick=null");
-        setFound(null);
-        yield break;
-    }
-
-    // Важно: по логам FSM события спавна находятся у Pick* (Events: PROCEED/FINISHED).
-    // openOwner (коробка/пачка) может отвечать только за "open"/анимацию, поэтому открываем ее отдельно.
-    var spawner = pick;
-
-    // Если есть владелец-"коробка" и у нее есть bool open=false - попробуем открыть
-    if (openOwner != null)
-    {
-        bool isOpen;
-        if (TryGetBoolVar(openOwner, "open", out isOpen) && !isOpen)
+                        private IEnumerator EnsureSpawned(string expectedName, GameObject primarySource, GameObject fallbackSource, Action<GameObject> setFound, int tries = 6)
         {
-            Log($"EnsureSpawned: {itemName} owner open=false -> PROCEED");
-            Proceed(openOwner);
-            yield return WaitForBool(openOwner, "open", true, Mathf.Max(0.2f, SpawnWaitSec.Value));
-        }
-    }
+            // Предметы/коробки обычно появляются рядом с игроком (а не рядом со складской точкой),
+            // поэтому ищем вокруг игрока, а не вокруг источника.
+            float searchR = Mathf.Max(2f, FindRadius.Value * 15f);
 
-
-    Log($"EnsureSpawned: {itemName} pick={pick.name} spawner={(spawner != null ? spawner.name : "null")} playerPos={PlayerPos()}");
-
-    // 1) Сразу попробуем найти предмет рядом с паллетой/игроком/спавнером
-    GameObject found = FindSpawnedNear(itemName, spawner) ?? FindSpawnedNear(itemName, pick);
-    if (found != null)
-    {
-        setFound(found);
-        yield break;
-    }
-
-    for (int attempt = 1; attempt <= tries; attempt++)
-    {
-        // Всегда сначала дергаем спавнер (коробку/пачку), а Pick* - только как fallback.
-        if (spawner != null)
-        {
-            Proceed(spawner);
-            yield return WaitSeconds(SpawnWaitSec.Value);
-
-            found = FindSpawnedNear(itemName, spawner) ?? FindSpawnedNear(itemName, pick);
-            if (found != null)
+            GameObject foundNow = FindNearestByName(expectedName, PlayerPos(), searchR);
+            if (foundNow == null)
             {
-                setFound(found);
+                string prefixNow = StripCloneSuffix(expectedName);
+                if (!string.IsNullOrEmpty(prefixNow))
+                    foundNow = FindNearestByPrefixIgnoreCase(prefixNow, PlayerPos(), searchR);
+            }
+
+            if (foundNow != null)
+            {
+                setFound(foundNow);
                 yield break;
             }
 
-            // Частый паттерн PlayMaker: первое PROCEED "открывает", второе - спавнит.
-            Proceed(spawner);
-            yield return WaitSeconds(SpawnWaitSec.Value);
-
-            found = FindSpawnedNear(itemName, spawner) ?? FindSpawnedNear(itemName, pick);
-            if (found != null)
+            for (int i = 0; i < tries; i++)
             {
-                setFound(found);
-                yield break;
+                bool sent = false;
+
+                if (primarySource != null)
+                {
+                    yield return AimAt(primarySource);
+                    sent = ProceedSpawner(primarySource, "PROCEED");
+                }
+
+                if (!sent && fallbackSource != null)
+                {
+                    yield return AimAt(fallbackSource);
+                    sent = ProceedSpawner(fallbackSource, "PROCEED");
+                }
+
+                if (!sent)
+                    yield break;
+
+                yield return WaitSeconds(SpawnWaitSec.Value);
+
+                GameObject found = FindSpawnedNear(expectedName, primarySource);
+                    if (found == null) found = FindSpawnedNear(expectedName, fallbackSource);
+                    if (found == null)
+                    {
+                        found = FindNearestByName(expectedName, PlayerPos(), searchR);
+                        if (found == null)
+                        {
+                            string prefix = StripCloneSuffix(expectedName);
+                            if (!string.IsNullOrEmpty(prefix))
+                                found = FindNearestByPrefixIgnoreCase(prefix, PlayerPos(), searchR);
+                        }
+                    }
+
+                if (found != null)
+                {
+                    setFound(found);
+                    yield break;
+                }
+
+                yield return WaitSeconds(SpawnWaitSec.Value);
             }
         }
 
-        // Fallback: если openOwner есть, иногда событие слушает именно Pick*
-        if (pick != null && spawner != pick)
+
+     
+
+        private IEnumerator EnsureBoxOpened(GameObject box)
         {
-            Proceed(pick);
-            yield return WaitSeconds(SpawnWaitSec.Value);
-
-            found = FindSpawnedNear(itemName, spawner) ?? FindSpawnedNear(itemName, pick);
-            if (found != null)
-            {
-                setFound(found);
+            if (box == null)
                 yield break;
-            }
-        }
 
-        Log($"EnsureSpawned: {itemName} attempt {attempt}/{tries} -> not found");
-        yield return WaitSeconds(0.15f);
-    }
+            // Некоторые коробки имеют переменную open=on/off. Если её нет - ничего не делаем.
+            bool isOpen;
+            if (!TryGetBoolVar(box, "open", out isOpen))
+                yield break;
 
-    // Debug: поможем понять, почему предмет "не найден" (не тот радиус / имя / объект улетел далеко).
-    float nearestDist;
-    var nearestGo = FindNearestByExpectedAnyDist(itemName, PlayerPos(), out nearestDist);
-    if (nearestGo != null)
-        Log($"EnsureSpawned: {itemName} FAILED. Nearest match={nearestGo.name} dist={nearestDist:0.0} playerPos={PlayerPos()}");
-    else
-        Log($"EnsureSpawned: {itemName} FAILED. No matching objects in scene. playerPos={PlayerPos()}");
+            if (isOpen)
+                yield break;
 
+            yield return AimAt(box);
 
-    setFound(null);
-}
+            // Открытие происходит через PROCEED (если событие есть в одном из FSM).
+            if (!ProceedSpawner(box, "PROCEED"))
+                yield break;
 
-private bool ProceedSpawner(GameObject spawner, string ev = "PROCEED")
+            // Ждём, пока open станет true (с небольшим таймаутом).
+            yield return WaitForBool(box, "open", true, Mathf.Max(0.5f, SpawnWaitSec.Value * 3f));
+        }   private bool ProceedSpawner(GameObject spawner, string ev = "PROCEED")
 {
     if (spawner == null)
     {
-        Log("Proceed: spawner is null");
+        Log($"Proceed: spawner=null ev={ev}");
         return false;
     }
 
-    var fsms = spawner.GetComponentsInChildren<PlayMakerFSM>(true);
-    if (fsms == null || fsms.Length == 0)
+    // ВАЖНО: у Pick* объектов часто несколько FSM. Первый может быть не "Use".
+    // Поэтому целимся сначала в FSM "Use", затем пробуем "Pick", и только потом - в первый FSM.
+    bool okUse = TrySendEventToFsm(spawner, "Use", ev);
+    if (okUse)
     {
-        Log($"Proceed: no FSMs on {spawner.name}");
-        return false;
+        Log($"Proceed: sent {ev} to {spawner.name} fsm=Use");
+        return true;
     }
 
-    // Try a few likely event spellings (some FSMs use USE instead of PROCEED).
-    string[] candidates = new string[] { ev, "PROCEED", "USE", "Proceed", "Use" };
-    foreach (var cand in candidates)
+    bool okPick = TrySendEventToFsm(spawner, "Pick", ev);
+    if (okPick)
     {
-        if (string.IsNullOrEmpty(cand)) continue;
-        var c = cand.Trim();
+        Log($"Proceed: sent {ev} to {spawner.name} fsm=Pick");
+        return true;
+    }
 
-        PlayMakerFSM targetFsm = null;
-        foreach (var f in fsms)
+    bool okAny = TrySendEventToFsm(spawner, null, ev);
+    if (okAny)
+    {
+        Log($"Proceed: sent {ev} to {spawner.name} fsm=first");
+        return true;
+    }
+
+    // Если не удалось - выведем список FSM (обычно сразу видно, куда целиться)
+    try
+    {
+        var fsms = spawner.GetComponents<PlayMakerFSM>();
+        if (fsms == null || fsms.Length == 0) Log($"Proceed: FAILED {ev} to {spawner.name} (no FSM)");
+        else
         {
-            if (FsmHasEvent(f, c))
-            {
-                targetFsm = f;
-                break;
-            }
-        }
-
-        if (targetFsm != null)
-        {
-            targetFsm.SendEvent(c);
-            if (DebugLog.Value) Log($"Proceed: {spawner.name} fsm={targetFsm.FsmName} ev={c}");
-            return true;
+            string names = string.Join(", ", fsms.Select(f => f != null ? f.FsmName : "null").ToArray());
+            Log($"Proceed: FAILED {ev} to {spawner.name} fsms=[{names}]");
         }
     }
+    catch (Exception e) { Logger.LogError(e); }
 
-    // Last resort: broadcast the original event to all FSMs (might be global).
-    foreach (var f in fsms)
-    {
-        try { f.SendEvent(ev); } catch { /* ignore */ }
-    }
-
-    Log($"Proceed: WARN no FSM declared event '{ev}' on {spawner.name} (broadcast sent)");
-    return true;
+    return false;
 }
-
 
         private void Proceed(GameObject spawner)
         {
             ProceedSpawner(spawner, "PROCEED");
         }
+
         private YieldInstruction WaitSeconds(float sec)
         {
-            return new WaitForSeconds(Mathf.Max(0.01f, sec));
+            return new WaitForSeconds(sec);
         }
 
-
-    private GameObject FindSpawnedNear(string expectedName, GameObject spawner)
-    {
-        if (string.IsNullOrEmpty(expectedName)) return null;
-
-        Vector3 playerPos = PlayerPos();
-        Vector3 anchorPos = spawner != null ? spawner.transform.position : playerPos;
-
-        // Старые радиусы были слишком маленькими - если ты работаешь у стола, а Pick-объекты далеко,
-        // мы не находим уже лежащие предметы. Делаем "мягкий минимум".
-        float baseR = Mathf.Max(FindRadius.Value, 3.0f);
-        float rAnchor = Mathf.Max(baseR * 6.0f, 12.0f);
-        float rPlayer = Mathf.Max(baseR * 40.0f, 80.0f);
-
-        // 1) Сначала пытаемся найти точное имя рядом с игроком (самый частый кейс: предметы валяются рядом).
-        GameObject found = FindNearestByName(expectedName, playerPos, rPlayer);
-        if (found != null) return found;
-
-        // 2) Потом - "умный" поиск по префиксу + проверка '(' чтобы не хватать контейнеры (chargers box, manuals box и т.п.).
-        found = FindNearestByExpected(expectedName, playerPos, rPlayer);
-        if (found != null) return found;
-
-        // 3) Вокруг спавнера (Pick* обычно стоит около контейнера).
-        found = FindNearestByExpected(expectedName, anchorPos, rAnchor);
-        if (found != null) return found;
-
-        // 4) Вокруг палеты (на всякий случай).
-        Vector3 palletPos = (_palletTrigger != null ? _palletTrigger.transform.position :
-                            (_palletPlayer != null ? _palletPlayer.transform.position : Vector3.zero));
-        if (palletPos != Vector3.zero)
+        private IEnumerator AimAt(GameObject target)
         {
-            found = FindNearestByExpected(expectedName, palletPos, rPlayer);
-            if (found != null) return found;
+            if (target == null)
+                yield break;
+
+            var camTr = PlayerCameraTransform();
+            if (camTr == null)
+                yield break;
+
+            var dir = target.transform.position - camTr.position;
+            if (dir.sqrMagnitude < 0.0001f)
+                yield break;
+
+            camTr.rotation = Quaternion.LookRotation(dir.normalized, Vector3.up);
+
+            // Даем 1 кадр, чтобы FSM успел перейти в "Wait button" (если это зависит от прицела).
+            yield return null;
         }
 
-        // 5) Последний шанс: взять ближайший матч вообще в сцене, если он не "космически" далеко.
-        float anyDist;
-        var any = FindNearestByExpectedAnyDist(expectedName, playerPos, out anyDist);
-        float hardMax = Mathf.Max(rPlayer, 150.0f);
-        if (any != null && anyDist <= hardMax)
+        private Transform PlayerCameraTransform()
         {
-            Log($"FindSpawnedNear: using far match for {expectedName}: {any.name} dist={anyDist:0.0} (hardMax={hardMax:0})");
-            return any;
+            var cam = Camera.main;
+            if (cam != null)
+                return cam.transform;
+
+            var go = FindGO("PLAYER/Pivot/AnimPivot/Camera/FPSCamera");
+            return go != null ? go.transform : null;
         }
 
-        return null;
-    }
+        private GameObject FindSpawnedNear(string expectedName, GameObject spawner)
+        {
+            if (string.IsNullOrEmpty(expectedName)) return null;
 
+            // Обычно в игре имена вида "foo(Clone)" - для поиска используем префикс без "(Clone)".
+            string prefix = expectedName.Replace("(Clone)", "").Trim();
+
+            Vector3 playerPos = PlayerPos();
+            Vector3 anchorPos = spawner != null ? spawner.transform.position : playerPos;
+            Vector3 palletPos = _palletTrigger != null ? _palletTrigger.position : (_palletPlayer != null ? _palletPlayer.transform.position : anchorPos);
+
+            float r = Mathf.Max(0.5f, FindRadius.Value);
+
+            GameObject best = null;
+            float bestD = float.MaxValue;
+
+            // 1) рядом со спавнером/пиком (обычно предмет появляется тут)
+            var nearAnchor = FindNearestByPrefix(prefix, anchorPos, r * 2.0f);
+            if (nearAnchor != null)
+            {
+                best = nearAnchor;
+                bestD = Vector3.Distance(playerPos, nearAnchor.transform.position);
+            }
+
+            // 2) рядом с игроком (если предмет уже лежит рядом)
+            var nearPlayer = FindNearestByPrefix(prefix, playerPos, r * 12.0f);
+            if (nearPlayer != null)
+            {
+                float d = Vector3.Distance(playerPos, nearPlayer.transform.position);
+                if (d < bestD)
+                {
+                    best = nearPlayer;
+                    bestD = d;
+                }
+            }
+
+            // 3) рядом с паллетой (иногда спавн/складка происходят около нее)
+            var nearPallet = FindNearestByPrefix(prefix, palletPos, r * 12.0f);
+            if (nearPallet != null)
+            {
+                float d = Vector3.Distance(playerPos, nearPallet.transform.position);
+                if (d < bestD)
+                {
+                    best = nearPallet;
+                    bestD = d;
+                }
+            }
+
+            if (DebugLog.Value)
+            {
+                Log(string.Format("FindSpawned: name={0} anchor={1} found={2} dist={3:0.00}",
+                    expectedName,
+                    spawner != null ? spawner.name : "null",
+                    best != null ? best.name : "null",
+                    best != null ? bestD : 0f));
+            }
+
+            return best;
+        }
 
         private IEnumerator AssembleIntoTray(GameObject tray, GameObject part, string triggerPath, string partName)
         {
@@ -754,6 +810,67 @@ yield return new WaitForSeconds(Mathf.Max(0.05f, PostEventWaitSec.Value));
             return transform.position;
         }
 
+        Vector3 PlayerForward()
+        {
+            try
+            {
+                var cam = Camera.main;
+                if (cam != null) return cam.transform.forward.normalized;
+            }
+            catch { /* ignore */ }
+
+            var p = FindGO("PLAYER");
+            if (p != null) return p.transform.forward.normalized;
+
+            return Vector3.forward;
+        }
+
+        Vector3 PlayerRight()
+        {
+            try
+            {
+                var cam = Camera.main;
+                if (cam != null) return cam.transform.right.normalized;
+            }
+            catch { /* ignore */ }
+
+            var p = FindGO("PLAYER");
+            if (p != null) return p.transform.right.normalized;
+
+            return Vector3.right;
+        }
+
+        void TeleportNearPlayer(GameObject go)
+        {
+            if (go == null) return;
+
+            var basePos = PlayerPos();
+            var fwd = PlayerForward();
+            var right = PlayerRight();
+
+            // Стабильное "раскладывание" коробок вокруг персонажа, чтобы они не слипались в одной точке
+            float side = 0f;
+            var n = go.name ?? "";
+            if (n.Contains("chargers box")) side = -0.6f;
+            else if (n.Contains("packaging sheets")) side = -0.2f;
+            else if (n.Contains("manuals box")) side = 0.2f;
+            else if (n.Contains("plastic trays")) side = 0.6f;
+
+            var target = basePos + fwd * 0.8f + right * side;
+            target.y += TeleportYOffset.Value;
+
+            go.transform.position = target;
+
+            // Гасим физику, чтобы объект не улетал
+            var rb = go.GetComponent<Rigidbody>();
+            if (rb != null)
+            {
+                rb.velocity = Vector3.zero;
+                rb.angularVelocity = Vector3.zero;
+            }
+        }
+
+
 
         private void SendEventToFsm(GameObject go, string fsmName, string ev)
         {
@@ -764,7 +881,7 @@ yield return new WaitForSeconds(Mathf.Max(0.05f, PostEventWaitSec.Value));
         {
             if (go == null) return false;
 
-            var fsms = go.GetComponentsInChildren<PlayMakerFSM>(true);
+            var fsms = go.GetComponents<PlayMakerFSM>();
             if (fsms == null || fsms.Length == 0) return false;
 
             // 1) пробуем точное имя FSM (если задано)
@@ -810,7 +927,8 @@ yield return new WaitForSeconds(Mathf.Max(0.05f, PostEventWaitSec.Value));
             var start = Time.time;
             while (Time.time - start < timeoutSec)
             {
-                if (TryGetBoolVar(go, varName, out var v) && v == expected) yield break;
+                bool v;
+                if (TryGetBoolVar(go, varName, out v) && v == expected) yield break;
                 yield return null;
             }
         }
@@ -837,7 +955,7 @@ yield return new WaitForSeconds(Mathf.Max(0.05f, PostEventWaitSec.Value));
         {
             if (go == null) return false;
 
-            var fsms = go.GetComponentsInChildren<PlayMakerFSM>(true);
+            var fsms = go.GetComponents<PlayMakerFSM>();
             if (fsms == null || fsms.Length == 0) return false;
 
             // 1) prefer by FSM name, if provided and the FSM declares the event
@@ -911,7 +1029,7 @@ yield return new WaitForSeconds(Mathf.Max(0.05f, PostEventWaitSec.Value));
         private PlayMakerFSM GetFsm(GameObject go, string fsmName)
         {
             if (go == null) return null;
-            var fsms = go.GetComponentsInChildren<PlayMakerFSM>(true);
+            var fsms = go.GetComponents<PlayMakerFSM>();
             if (fsms == null) return null;
 
             for (int i = 0; i < fsms.Length; i++)
@@ -1114,93 +1232,48 @@ private static bool IsValidActive(GameObject go)
             return bestGo;
         }
 
-    private bool NameMatchesExpectedClone(string expectedName, string candidateName)
-    {
-        if (string.IsNullOrEmpty(expectedName) || string.IsNullOrEmpty(candidateName)) return false;
-
-        // Exact match - safest.
-        if (string.Equals(candidateName, expectedName, StringComparison.OrdinalIgnoreCase))
-            return true;
-
-        // For cloned items we prefer "prefix + (Clone)" and must avoid containers like "chargers box(Clone)".
-        string prefix = expectedName.Replace("(Clone)", "").Trim();
-        if (prefix.Length == 0) return false;
-        if (!candidateName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) return false;
-
-        // Accept only if the next non-space character is '('.
-        int idx = prefix.Length;
-        while (idx < candidateName.Length && candidateName[idx] == ' ') idx++;
-        return (idx < candidateName.Length && candidateName[idx] == '(');
-    }
-
-    private GameObject FindNearestByExpected(string expectedName, Vector3 around, float radius)
-    {
-        if (string.IsNullOrEmpty(expectedName)) return null;
-
-        float best = float.MaxValue;
-        GameObject bestGo = null;
-
-        try
+        private string StripCloneSuffix(string name)
         {
-            foreach (var t in Resources.FindObjectsOfTypeAll<Transform>())
-            {
-                if (t == null) continue;
-                var go = t.gameObject;
-                if (go == null) continue;
-                if (!go.activeInHierarchy) continue;
+            if (string.IsNullOrEmpty(name))
+                return name;
 
-                if (!NameMatchesExpectedClone(expectedName, go.name)) continue;
+            int idx = name.IndexOf("(Clone)", StringComparison.OrdinalIgnoreCase);
+            if (idx >= 0)
+                return name.Substring(0, idx).Trim();
 
-                float d = Vector3.Distance(around, go.transform.position);
-                if (d <= radius && d < best)
-                {
-                    best = d;
-                    bestGo = go;
-                }
-            }
-        }
-        catch (Exception e)
-        {
-            Log($"FindNearestByExpected({expectedName}) error: {e.Message}");
+            idx = name.IndexOf("(", StringComparison.Ordinal);
+            if (idx >= 0)
+                return name.Substring(0, idx).Trim();
+
+            return name.Trim();
         }
 
-        return bestGo;
-    }
-
-    private GameObject FindNearestByExpectedAnyDist(string expectedName, Vector3 around, out float bestDist)
-    {
-        bestDist = float.MaxValue;
-        if (string.IsNullOrEmpty(expectedName)) return null;
-
-        GameObject bestGo = null;
-
-        try
+        private GameObject FindNearestByPrefixIgnoreCase(string prefix, Vector3 around, float radius)
         {
-            foreach (var t in Resources.FindObjectsOfTypeAll<Transform>())
-            {
-                if (t == null) continue;
-                var go = t.gameObject;
-                if (go == null) continue;
-                if (!go.activeInHierarchy) continue;
+            if (string.IsNullOrEmpty(prefix))
+                return null;
 
-                if (!NameMatchesExpectedClone(expectedName, go.name)) continue;
+            GameObject best = null;
+            float bestDist = float.MaxValue;
+
+            foreach (var go in GameObject.FindObjectsOfType<GameObject>())
+            {
+                if (go == null)
+                    continue;
+
+                if (!go.name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                    continue;
 
                 float d = Vector3.Distance(around, go.transform.position);
-                if (d < bestDist)
+                if (d <= radius && d < bestDist)
                 {
                     bestDist = d;
-                    bestGo = go;
+                    best = go;
                 }
             }
-        }
-        catch (Exception e)
-        {
-            Log($"FindNearestByExpectedAnyDist({expectedName}) error: {e.Message}");
-        }
 
-        return bestGo;
-    }
-
+            return best;
+        }
 
 
         private GameObject FindNearestByName(string exactName, Vector3 around, float radius)
