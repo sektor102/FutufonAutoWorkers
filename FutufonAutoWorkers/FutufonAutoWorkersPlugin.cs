@@ -9,7 +9,7 @@ using HutongGames.PlayMaker;
 
 namespace FutufonAutoWorker
 {
-    [BepInPlugin("com.futufon.autoworker", "Futufon AutoWorker (autofocus9)", "0.3.3")]
+    [BepInPlugin("com.futufon.autoworker", "Futufon AutoWorker (autofocus11)", "0.3.4")]
     public class Plugin : BaseUnityPlugin
     {
         private bool _busy;
@@ -25,11 +25,11 @@ namespace FutufonAutoWorker
         private ConfigEntry<float> UseRayDist;
         private ConfigEntry<float> PostEventWaitSec;
 
-        
+
         private ConfigEntry<float> SpawnWaitSec;
         private ConfigEntry<float> StepWaitSec;
         private ConfigEntry<int> TargetCount;
-private ConfigEntry<float> FindRadius;
+        private ConfigEntry<float> FindRadius;
         private ConfigEntry<float> TeleportYOffset;
         private ConfigEntry<bool> DebugLog;
 
@@ -38,6 +38,7 @@ private ConfigEntry<float> FindRadius;
         private GameObject _srcTrays, _srcChargers, _srcManuals, _srcSheets;
         private GameObject _palletPlayer; // PalletPackagesPlayer
         private Transform _palletTrigger; // TriggerBox
+        private GameObject _workTable; // work_table2 - якорь для телепортов/спавна
 
         private void Awake()
         {
@@ -50,16 +51,16 @@ private ConfigEntry<float> FindRadius;
             UseRayDist = Config.Bind("Debug", "UseRayDist", 3.0f, "Raycast distance required to interact");
             PostEventWaitSec = Config.Bind("Timing", "PostEventWaitSec", 0.25f, "Wait after sending event");
 
-            
+
             SpawnWaitSec = Config.Bind("Timing", "SpawnWaitSec", 0.35f, "Wait after spawning an item from spawner");
             StepWaitSec = Config.Bind("Timing", "StepWaitSec", 0.25f, "Wait between automation cycles/steps");
             FindRadius = Config.Bind("Auto", "FindRadius", 3.0f, "Radius to find spawned parts around player");
-            
+
             TargetCount = Config.Bind("General", "TargetCount", 0, "How many packages to produce before auto-stopping (0 = infinite).");
-TeleportYOffset = Config.Bind("Auto", "TeleportYOffset", 0.02f, "Small Y offset when teleporting to triggers");
+            TeleportYOffset = Config.Bind("Auto", "TeleportYOffset", 0.02f, "Small Y offset when teleporting to triggers");
             DebugLog = Config.Bind("Debug", "DebugLog", true, "Verbose logs");
 
-            Log("Loaded autofocus7. F8 toggle automation, F5 debug PROCEED, F7 debug package, F9 dump FSMs.");
+            Log("Loaded autofocus11. F8 toggle automation, F5 debug PROCEED, F7 debug package, F9 dump FSMs.");
         }
 
         private void Update()
@@ -188,11 +189,11 @@ TeleportYOffset = Config.Bind("Auto", "TeleportYOffset", 0.02f, "Small Y offset 
                         Short(tray), Short(pack), Short(charger), Short(manual)));
 
                     if (tray == null || pack == null || charger == null || manual == null)
-                {
-                    Log("Auto: missing items after retries, will retry");
-                    yield return new WaitForSeconds(Mathf.Max(0.2f, SpawnWaitSec.Value));
-                    continue;
-                }
+                    {
+                        Log("Auto: missing items after retries, will retry");
+                        yield return new WaitForSeconds(Mathf.Max(0.2f, SpawnWaitSec.Value));
+                        continue;
+                    }
 
                     yield return AssembleTray(tray, charger, manual);
                     yield return new WaitForSeconds(Mathf.Max(0.05f, StepWaitSec.Value));
@@ -223,52 +224,56 @@ TeleportYOffset = Config.Bind("Auto", "TeleportYOffset", 0.02f, "Small Y offset 
         }
 
         private void CacheFactoryRefs()
-{
-    // В MWC нередко есть несколько копий объектов (LOD/дубликаты). Нам нужны ближайшие АКТИВНЫЕ.
-    Vector3 near = PlayerPos();
-    const float rSrc = 150f;
-    const float rPick = 150f;
-    const float rPallet = 250f;
+        {
+            // В MWC нередко есть несколько копий объектов (LOD/дубликаты). Нам нужны ближайшие АКТИВНЫЕ.
+            Vector3 near = PlayerPos();
+            const float rSrc = 150f;
+            const float rPick = 150f;
+            const float rPallet = 250f;
 
-    // Pick-* спавнеры (у них часто есть PROCEED/FINISHED)
-    _pickTrays = FindNearestActiveInScene("PickTrays", near, rPick, go => go.GetComponent<PlayMakerFSM>() != null || GetFsm(go, "Use") != null) ?? FindGODeep("PickTrays");
-    _pickSheets = FindNearestActiveInScene("PickSheets", near, rPick, go => go.GetComponent<PlayMakerFSM>() != null || GetFsm(go, "Use") != null) ?? FindGODeep("PickSheets");
-    _pickChargers = FindNearestActiveInScene("PickChargers", near, rPick, go => go.GetComponent<PlayMakerFSM>() != null || GetFsm(go, "Use") != null) ?? FindGODeep("PickChargers");
-    _pickManuals = FindNearestActiveInScene("PickManuals", near, rPick, go => go.GetComponent<PlayMakerFSM>() != null || GetFsm(go, "Use") != null) ?? FindGODeep("PickManuals");
+            // Pick-* спавнеры (у них часто есть PROCEED/FINISHED)
+            _pickTrays = FindNearestActiveInScene("PickTrays", near, rPick, go => go.GetComponent<PlayMakerFSM>() != null || GetFsm(go, "Use") != null) ?? FindGODeep("PickTrays");
+            _pickSheets = FindNearestActiveInScene("PickSheets", near, rPick, go => go.GetComponent<PlayMakerFSM>() != null || GetFsm(go, "Use") != null) ?? FindGODeep("PickSheets");
+            _pickChargers = FindNearestActiveInScene("PickChargers", near, rPick, go => go.GetComponent<PlayMakerFSM>() != null || GetFsm(go, "Use") != null) ?? FindGODeep("PickChargers");
+            _pickManuals = FindNearestActiveInScene("PickManuals", near, rPick, go => go.GetComponent<PlayMakerFSM>() != null || GetFsm(go, "Use") != null) ?? FindGODeep("PickManuals");
 
-    // Исходные коробки/пачки (на некоторых билдах/локализациях тоже работают)
-    _srcTrays = FindNearestActiveInScene("plastic trays(Clone)", near, rSrc) ?? FindGODeep("plastic trays(Clone)");
-    _srcSheets = FindNearestActiveInScene("packaging sheets(Clone)", near, rSrc) ?? FindGODeep("packaging sheets(Clone)");
-    _srcChargers = FindNearestActiveInScene("chargers box(Clone)", near, rSrc) ?? FindGODeep("chargers box(Clone)");
-    _srcManuals = FindNearestActiveInScene("manuals box(Clone)", near, rSrc) ?? FindGODeep("manuals box(Clone)");
+            // Исходные коробки/пачки (на некоторых билдах/локализациях тоже работают)
+            _srcTrays = FindNearestActiveInScene("plastic trays(Clone)", near, rSrc) ?? FindGODeep("plastic trays(Clone)");
+            _srcSheets = FindNearestActiveInScene("packaging sheets(Clone)", near, rSrc) ?? FindGODeep("packaging sheets(Clone)");
+            _srcChargers = FindNearestActiveInScene("chargers box(Clone)", near, rSrc) ?? FindGODeep("chargers box(Clone)");
+            _srcManuals = FindNearestActiveInScene("manuals box(Clone)", near, rSrc) ?? FindGODeep("manuals box(Clone)");
 
-    _palletPlayer = FindNearestActiveInScene("PalletPackagesPlayer", near, rPallet, go => go.GetComponent<PlayMakerFSM>() != null) ?? FindGODeep("PalletPackagesPlayer");
-    _palletTrigger = null;
-    if (_palletPlayer != null)
-    {
-        // В разных версиях может называться по-разному - пробуем несколько
-        Transform t = _palletPlayer.transform.Find("TriggerBox");
-        if (t == null) t = FindChildDeep(_palletPlayer.transform, "TriggerBox");
-        if (t == null) t = FindChildDeep(_palletPlayer.transform, "TriggerPallet");
-        _palletTrigger = t;
-    }
+            _palletPlayer = FindNearestActiveInScene("PalletPackagesPlayer", near, rPallet, go => go.GetComponent<PlayMakerFSM>() != null) ?? FindGODeep("PalletPackagesPlayer");
+            _palletTrigger = null;
+            if (_palletPlayer != null)
+            {
+                // В разных версиях может называться по-разному - пробуем несколько
+                Transform t = _palletPlayer.transform.Find("TriggerBox");
+                if (t == null) t = FindChildDeep(_palletPlayer.transform, "TriggerBox");
+                if (t == null) t = FindChildDeep(_palletPlayer.transform, "TriggerPallet");
+                _palletTrigger = t;
+            }
 
-    if (DebugLog.Value)
-    {
-        Log(string.Format(
-            "Cache: SrcTrays={0} SrcSheets={1} SrcChargers={2} SrcManuals={3} PickTrays={4} PickSheets={5} PickChargers={6} PickManuals={7} Pallet={8}/{9}",
-            _srcTrays ? "ok" : "null",
-            _srcSheets ? "ok" : "null",
-            _srcChargers ? "ok" : "null",
-            _srcManuals ? "ok" : "null",
-            _pickTrays ? "ok" : "null",
-            _pickSheets ? "ok" : "null",
-            _pickChargers ? "ok" : "null",
-            _pickManuals ? "ok" : "null",
-            _palletPlayer ? "ok" : "null",
-            _palletTrigger ? "ok" : "null"));
-    }
-}
+            _workTable = FindGO("work_table2");
+            if (_workTable == null) _workTable = FindGO("work_table");
+
+            if (DebugLog.Value)
+            {
+                Log(string.Format(
+                    "Cache: SrcTrays={0} SrcSheets={1} SrcChargers={2} SrcManuals={3} PickTrays={4} PickSheets={5} PickChargers={6} PickManuals={7} Pallet={8}/{9} WorkTable={10}",
+                    _srcTrays ? "ok" : "null",
+                    _srcSheets ? "ok" : "null",
+                    _srcChargers ? "ok" : "null",
+                    _srcManuals ? "ok" : "null",
+                    _pickTrays ? "ok" : "null",
+                    _pickSheets ? "ok" : "null",
+                    _pickChargers ? "ok" : "null",
+                    _pickManuals ? "ok" : "null",
+                    _palletPlayer ? "ok" : "null",
+                    _palletTrigger ? "ok" : "null",
+                    _workTable ? "ok" : "null"));
+            }
+        }
 
 
         // Backward-compatible alias (older patches referenced CacheWorkObjects)
@@ -307,72 +312,139 @@ TeleportYOffset = Config.Bind("Auto", "TeleportYOffset", 0.02f, "Small Y offset 
             Log("Auto: tray inserted into package");
         }
 
-                        private IEnumerator EnsureSpawned(string expectedName, GameObject primarySource, GameObject fallbackSource, Action<GameObject> setFound, int tries = 6)
-        {
-            // Предметы/коробки обычно появляются рядом с игроком (а не рядом со складской точкой),
-            // поэтому ищем вокруг игрока, а не вокруг источника.
-            float searchR = Mathf.Max(2f, FindRadius.Value * 15f);
 
-            GameObject foundNow = FindNearestByName(expectedName, PlayerPos(), searchR);
-            if (foundNow == null)
+        private Vector3 AnchorPos()
+        {
+            // Если найден рабочий стол - спавним/телепортим вокруг него, иначе вокруг игрока.
+            return _workTable != null ? _workTable.transform.position : PlayerPos();
+        }
+
+        private GameObject GetSpawnProceedTarget(GameObject src, string expectedName)
+        {
+            if (src == null) return null;
+
+            // У Pick*-объектов спавн часто живёт в дочернем "Spawner/*" FSM.
+            if (!src.name.StartsWith("Pick", StringComparison.OrdinalIgnoreCase))
+                return src;
+
+            var spawner = FindChildDeep(src.transform, "Spawner");
+            if (spawner == null) return src;
+
+            if (!string.IsNullOrEmpty(expectedName))
             {
-                string prefixNow = StripCloneSuffix(expectedName);
-                if (!string.IsNullOrEmpty(prefixNow))
-                    foundNow = FindNearestByPrefixIgnoreCase(prefixNow, PlayerPos(), searchR);
+                var exact = FindChildDeep(spawner, expectedName);
+                if (exact != null) return exact.gameObject;
+
+                // Иногда имя в дереве может отличаться - пробуем по префиксу.
+                var byPrefix = FindChildDeepPrefix(spawner, expectedName.Replace("(Clone)", "").Trim());
+                if (byPrefix != null) return byPrefix.gameObject;
             }
 
-            if (foundNow != null)
+            // Фолбэк: сам Spawner или его первый ребёнок.
+            if (spawner.childCount > 0) return spawner.GetChild(0).gameObject;
+            return spawner.gameObject;
+        }
+
+        private static Transform FindChildDeepPrefix(Transform root, string prefix)
+        {
+            if (root == null || string.IsNullOrEmpty(prefix)) return null;
+
+            // DFS
+            var stack = new System.Collections.Generic.Stack<Transform>();
+            stack.Push(root);
+
+            while (stack.Count > 0)
             {
-                setFound(foundNow);
+                var t = stack.Pop();
+                if (t != null && t.name != null && t.name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                    return t;
+
+                for (int i = 0; i < t.childCount; i++)
+                    stack.Push(t.GetChild(i));
+            }
+            return null;
+        }
+
+        private GameObject FindExpectedNear(string expectedName, string prefixAlt, float r, GameObject a, GameObject b)
+        {
+            // 1) около якоря (стол/игрок)
+            var found = FindNearestByNameNear(expectedName, AnchorPos(), r);
+            if (found != null) return found;
+
+            // 2) около источников (Pick* / коробки)
+            if (a != null)
+            {
+                found = FindNearestByNameNear(expectedName, a.transform.position, r);
+                if (found != null) return found;
+            }
+            if (b != null)
+            {
+                found = FindNearestByNameNear(expectedName, b.transform.position, r);
+                if (found != null) return found;
+            }
+
+            // 3) по префиксу - на всякий случай
+            if (!string.IsNullOrEmpty(prefixAlt))
+            {
+                found = FindNearestByPrefixIgnoreCase(prefixAlt, AnchorPos(), r);
+                if (found != null) return found;
+                if (a != null)
+                {
+                    found = FindNearestByPrefixIgnoreCase(prefixAlt, a.transform.position, r);
+                    if (found != null) return found;
+                }
+                if (b != null)
+                {
+                    found = FindNearestByPrefixIgnoreCase(prefixAlt, b.transform.position, r);
+                    if (found != null) return found;
+                }
+            }
+
+            return null;
+        }
+
+        private IEnumerator EnsureSpawned(string expectedName, GameObject primarySource, GameObject fallbackSource, Action<GameObject> setFound, int tries = 3, float searchR = 3.5f)
+        {
+            // Сначала ищем где угодно рядом: около якоря/источников.
+            var prefixAlt = expectedName.Replace("(Clone)", "").Trim();
+            var found = FindExpectedNear(expectedName, prefixAlt, searchR, primarySource, fallbackSource);
+            if (found != null)
+            {
+                setFound(found);
                 yield break;
             }
 
+            // Пытаемся заспавнить: сначала из primary, иначе из fallback.
             for (int i = 0; i < tries; i++)
             {
-                bool sent = false;
+                var src = primarySource != null ? primarySource : fallbackSource;
+                if (src == null) break;
 
-                if (primarySource != null)
+                var proceedTarget = GetSpawnProceedTarget(src, expectedName) ?? src;
+
+                // На всякий случай - целимся на объект, чтобы FSM перешёл в Wait button.
+                yield return AimAt(proceedTarget);
+
+                if (!ProceedSpawner(proceedTarget, "PROCEED"))
                 {
-                    yield return AimAt(primarySource);
-                    sent = ProceedSpawner(primarySource, "PROCEED");
+                    // Если не удалось отправить событие в FSM - не падаем, а пробуем ещё раз.
+                    if (DebugLog.Value) Log($"EnsureSpawned: can't PROCEED {proceedTarget.name} for {expectedName}");
                 }
-
-                if (!sent && fallbackSource != null)
-                {
-                    yield return AimAt(fallbackSource);
-                    sent = ProceedSpawner(fallbackSource, "PROCEED");
-                }
-
-                if (!sent)
-                    yield break;
 
                 yield return WaitSeconds(SpawnWaitSec.Value);
 
-                GameObject found = FindSpawnedNear(expectedName, primarySource);
-                    if (found == null) found = FindSpawnedNear(expectedName, fallbackSource);
-                    if (found == null)
-                    {
-                        found = FindNearestByName(expectedName, PlayerPos(), searchR);
-                        if (found == null)
-                        {
-                            string prefix = StripCloneSuffix(expectedName);
-                            if (!string.IsNullOrEmpty(prefix))
-                                found = FindNearestByPrefixIgnoreCase(prefix, PlayerPos(), searchR);
-                        }
-                    }
-
+                // После спавна ищем сначала около источника, потом около якоря.
+                found = FindExpectedNear(expectedName, prefixAlt, searchR, proceedTarget, src);
                 if (found != null)
                 {
                     setFound(found);
                     yield break;
                 }
-
-                yield return WaitSeconds(SpawnWaitSec.Value);
             }
+
+            // Ничего не нашли.
+            setFound(null);
         }
-
-
-     
 
         private IEnumerator EnsureBoxOpened(GameObject box)
         {
@@ -395,52 +467,54 @@ TeleportYOffset = Config.Bind("Auto", "TeleportYOffset", 0.02f, "Small Y offset 
 
             // Ждём, пока open станет true (с небольшим таймаутом).
             yield return WaitForBool(box, "open", true, Mathf.Max(0.5f, SpawnWaitSec.Value * 3f));
-        }   private bool ProceedSpawner(GameObject spawner, string ev = "PROCEED")
-{
-    if (spawner == null)
-    {
-        Log($"Proceed: spawner=null ev={ev}");
-        return false;
-    }
-
-    // ВАЖНО: у Pick* объектов часто несколько FSM. Первый может быть не "Use".
-    // Поэтому целимся сначала в FSM "Use", затем пробуем "Pick", и только потом - в первый FSM.
-    bool okUse = TrySendEventToFsm(spawner, "Use", ev);
-    if (okUse)
-    {
-        Log($"Proceed: sent {ev} to {spawner.name} fsm=Use");
-        return true;
-    }
-
-    bool okPick = TrySendEventToFsm(spawner, "Pick", ev);
-    if (okPick)
-    {
-        Log($"Proceed: sent {ev} to {spawner.name} fsm=Pick");
-        return true;
-    }
-
-    bool okAny = TrySendEventToFsm(spawner, null, ev);
-    if (okAny)
-    {
-        Log($"Proceed: sent {ev} to {spawner.name} fsm=first");
-        return true;
-    }
-
-    // Если не удалось - выведем список FSM (обычно сразу видно, куда целиться)
-    try
-    {
-        var fsms = spawner.GetComponents<PlayMakerFSM>();
-        if (fsms == null || fsms.Length == 0) Log($"Proceed: FAILED {ev} to {spawner.name} (no FSM)");
-        else
-        {
-            string names = string.Join(", ", fsms.Select(f => f != null ? f.FsmName : "null").ToArray());
-            Log($"Proceed: FAILED {ev} to {spawner.name} fsms=[{names}]");
         }
-    }
-    catch (Exception e) { Logger.LogError(e); }
 
-    return false;
-}
+        private bool ProceedSpawner(GameObject spawner, string ev = "PROCEED")
+        {
+            if (spawner == null)
+            {
+                Log($"Proceed: spawner=null ev={ev}");
+                return false;
+            }
+
+            // ВАЖНО: у Pick* объектов часто несколько FSM. Первый может быть не "Use".
+            // Поэтому целимся сначала в FSM "Use", затем пробуем "Pick", и только потом - в первый FSM.
+            bool okUse = TrySendEventToFsm(spawner, "Use", ev);
+            if (okUse)
+            {
+                Log($"Proceed: sent {ev} to {spawner.name} fsm=Use");
+                return true;
+            }
+
+            bool okPick = TrySendEventToFsm(spawner, "Pick", ev);
+            if (okPick)
+            {
+                Log($"Proceed: sent {ev} to {spawner.name} fsm=Pick");
+                return true;
+            }
+
+            bool okAny = TrySendEventToFsm(spawner, null, ev);
+            if (okAny)
+            {
+                Log($"Proceed: sent {ev} to {spawner.name} fsm=first");
+                return true;
+            }
+
+            // Если не удалось - выведем список FSM (обычно сразу видно, куда целиться)
+            try
+            {
+                var fsms = spawner.GetComponentsInChildren<PlayMakerFSM>(true);
+                if (fsms == null || fsms.Length == 0) Log($"Proceed: FAILED {ev} to {spawner.name} (no FSM)");
+                else
+                {
+                    string names = string.Join(", ", fsms.Select(f => f != null ? f.FsmName : "null").ToArray());
+                    Log($"Proceed: FAILED {ev} to {spawner.name} fsms=[{names}]");
+                }
+            }
+            catch (Exception e) { Logger.LogError(e); }
+
+            return false;
+        }
 
         private void Proceed(GameObject spawner)
         {
@@ -563,18 +637,18 @@ TeleportYOffset = Config.Bind("Auto", "TeleportYOffset", 0.02f, "Small Y offset 
             // Если не отправить ASSEMBLE, деталь просто останется лежать в триггере и не защелкнется.
             // Be permissive with event names / FSM names across different game & mod versions.
             TrySendEventToAnyFsmWithEvent(part, "ASSEMBLE", "Contents", "Use", "Assembly");
-            TrySendEventToAnyFsmWithEvent(part, "PROCEED",  "Contents", "Use", "Assembly");
+            TrySendEventToAnyFsmWithEvent(part, "PROCEED", "Contents", "Use", "Assembly");
             TrySendEventToAnyFsmWithEvent(part, "FINISHED", "Contents", "Use", "Assembly");
 
             // Если телепортировали предмет внутрь триггера, физика может не дать OnTriggerEnter.
             // Поэтому дополнительно пуляем TRIGGER ENTER/LOOP, если FSM их содержит.
             TrySendEventToAnyFsmWithEvent(trg.gameObject, "TRIGGER ENTER", "Assembly");
             TrySendEventToAnyFsmWithEvent(trg.gameObject, "LOOP", "Assembly");
-            TrySendEventToAnyFsmWithEvent(trg.gameObject, "PROCEED",  "Contents", "Use", "Assembly");
+            TrySendEventToAnyFsmWithEvent(trg.gameObject, "PROCEED", "Contents", "Use", "Assembly");
             TrySendEventToAnyFsmWithEvent(trg.gameObject, "ASSEMBLE", "Contents", "Use", "Assembly");
             TrySendEventToAnyFsmWithEvent(trg.gameObject, "FINISHED", "Contents", "Use", "Assembly");
 
-            TrySendEventToAnyFsmWithEvent(tray, "PROCEED",  "Contents", "Use", "Assembly");
+            TrySendEventToAnyFsmWithEvent(tray, "PROCEED", "Contents", "Use", "Assembly");
             TrySendEventToAnyFsmWithEvent(tray, "ASSEMBLE", "Contents", "Use", "Assembly");
             TrySendEventToAnyFsmWithEvent(tray, "FINISHED", "Contents", "Use", "Assembly");
 
@@ -602,19 +676,19 @@ TeleportYOffset = Config.Bind("Auto", "TeleportYOffset", 0.02f, "Small Y offset 
             // Телепорт внутрь триггера может не дать OnTriggerEnter, поэтому явно дергаем TRIGGER ENTER/LOOP.
             TrySendEventToAnyFsmWithEvent(trg.gameObject, "TRIGGER ENTER", "Contents", "Use", "Assembly");
             TrySendEventToAnyFsmWithEvent(trg.gameObject, "LOOP", "Contents", "Use", "Assembly");
-TrySendEventToAnyFsmWithEvent(trg.gameObject, "PROCEED",  "Contents", "Use", "Assembly");
-TrySendEventToAnyFsmWithEvent(trg.gameObject, "ASSEMBLE", "Contents", "Use", "Assembly");
-TrySendEventToAnyFsmWithEvent(trg.gameObject, "FINISHED", "Contents", "Use", "Assembly");
+            TrySendEventToAnyFsmWithEvent(trg.gameObject, "PROCEED", "Contents", "Use", "Assembly");
+            TrySendEventToAnyFsmWithEvent(trg.gameObject, "ASSEMBLE", "Contents", "Use", "Assembly");
+            TrySendEventToAnyFsmWithEvent(trg.gameObject, "FINISHED", "Contents", "Use", "Assembly");
 
-TrySendEventToAnyFsmWithEvent(tray, "PROCEED",  "Contents", "Use", "Assembly");
-TrySendEventToAnyFsmWithEvent(tray, "ASSEMBLE", "Contents", "Use", "Assembly");
-TrySendEventToAnyFsmWithEvent(tray, "FINISHED", "Contents", "Use", "Assembly");
+            TrySendEventToAnyFsmWithEvent(tray, "PROCEED", "Contents", "Use", "Assembly");
+            TrySendEventToAnyFsmWithEvent(tray, "ASSEMBLE", "Contents", "Use", "Assembly");
+            TrySendEventToAnyFsmWithEvent(tray, "FINISHED", "Contents", "Use", "Assembly");
 
-TrySendEventToAnyFsmWithEvent(pack, "PROCEED",  "Contents", "Use", "Assembly");
-TrySendEventToAnyFsmWithEvent(pack, "ASSEMBLE", "Contents", "Use", "Assembly");
-TrySendEventToAnyFsmWithEvent(pack, "FINISHED", "Contents", "Use", "Assembly");
+            TrySendEventToAnyFsmWithEvent(pack, "PROCEED", "Contents", "Use", "Assembly");
+            TrySendEventToAnyFsmWithEvent(pack, "ASSEMBLE", "Contents", "Use", "Assembly");
+            TrySendEventToAnyFsmWithEvent(pack, "FINISHED", "Contents", "Use", "Assembly");
 
-yield return new WaitForSeconds(Mathf.Max(0.05f, PostEventWaitSec.Value));
+            yield return new WaitForSeconds(Mathf.Max(0.05f, PostEventWaitSec.Value));
 
         }
 
@@ -708,43 +782,43 @@ yield return new WaitForSeconds(Mathf.Max(0.05f, PostEventWaitSec.Value));
         }
 
         private IEnumerator UsePackageLooked()
-{
-    if (_busy) yield break;
-    _busy = true;
-
-    try
-    {
-        var looked = PickLookTarget(AimRayDist.Value);
-        if (looked == null)
         {
-            Log("UsePackage: no looked object.");
-            yield break;
-        }
+            if (_busy) yield break;
+            _busy = true;
 
-        // Если луч попал в коробку/что-то большое, пытаемся найти ближайший package рядом с игроком.
-        if (!IsPackage(looked))
-        {
-            var nearestPack = FindNearestByPrefix("package(Clone)", PlayerPos(), FindRadius.Value * 6f);
-            if (nearestPack != null)
+            try
             {
-                Log($"UsePackage: looked is not package(Clone): {looked.name} -> using nearest {nearestPack.name}");
-                looked = nearestPack;
+                var looked = PickLookTarget(AimRayDist.Value);
+                if (looked == null)
+                {
+                    Log("UsePackage: no looked object.");
+                    yield break;
+                }
+
+                // Если луч попал в коробку/что-то большое, пытаемся найти ближайший package рядом с игроком.
+                if (!IsPackage(looked))
+                {
+                    var nearestPack = FindNearestByPrefix("package(Clone)", PlayerPos(), FindRadius.Value * 6f);
+                    if (nearestPack != null)
+                    {
+                        Log($"UsePackage: looked is not package(Clone): {looked.name} -> using nearest {nearestPack.name}");
+                        looked = nearestPack;
+                    }
+                    else
+                    {
+                        Log($"UsePackage: looked is not package(Clone): {looked.name}");
+                        yield break;
+                    }
+                }
+
+                // Fold package
+                yield return SendEventThenWait(looked, "Use", "PROCEED", StepWaitSec.Value);
             }
-            else
+            finally
             {
-                Log($"UsePackage: looked is not package(Clone): {looked.name}");
-                yield break;
+                _busy = false;
             }
         }
-
-        // Fold package
-        yield return SendEventThenWait(looked, "Use", "PROCEED", StepWaitSec.Value);
-    }
-    finally
-    {
-        _busy = false;
-    }
-}
 
         private IEnumerator DumpLookedFsms()
         {
@@ -844,7 +918,7 @@ yield return new WaitForSeconds(Mathf.Max(0.05f, PostEventWaitSec.Value));
         {
             if (go == null) return;
 
-            var basePos = PlayerPos();
+            var basePos = AnchorPos();
             var fwd = PlayerForward();
             var right = PlayerRight();
 
@@ -881,7 +955,7 @@ yield return new WaitForSeconds(Mathf.Max(0.05f, PostEventWaitSec.Value));
         {
             if (go == null) return false;
 
-            var fsms = go.GetComponents<PlayMakerFSM>();
+            var fsms = go.GetComponentsInChildren<PlayMakerFSM>(true);
             if (fsms == null || fsms.Length == 0) return false;
 
             // 1) пробуем точное имя FSM (если задано)
@@ -909,7 +983,7 @@ yield return new WaitForSeconds(Mathf.Max(0.05f, PostEventWaitSec.Value));
             value = false;
             if (go == null) return false;
 
-            foreach (var fsm in go.GetComponents<PlayMakerFSM>())
+            foreach (var fsm in go.GetComponentsInChildren<PlayMakerFSM>(true))
             {
                 if (fsm == null || fsm.FsmVariables == null) continue;
                 var vb = fsm.FsmVariables.FindFsmBool(varName);
@@ -955,7 +1029,7 @@ yield return new WaitForSeconds(Mathf.Max(0.05f, PostEventWaitSec.Value));
         {
             if (go == null) return false;
 
-            var fsms = go.GetComponents<PlayMakerFSM>();
+            var fsms = go.GetComponentsInChildren<PlayMakerFSM>(true);
             if (fsms == null || fsms.Length == 0) return false;
 
             // 1) prefer by FSM name, if provided and the FSM declares the event
@@ -1029,7 +1103,7 @@ yield return new WaitForSeconds(Mathf.Max(0.05f, PostEventWaitSec.Value));
         private PlayMakerFSM GetFsm(GameObject go, string fsmName)
         {
             if (go == null) return null;
-            var fsms = go.GetComponents<PlayMakerFSM>();
+            var fsms = go.GetComponentsInChildren<PlayMakerFSM>(true);
             if (fsms == null) return null;
 
             for (int i = 0; i < fsms.Length; i++)
@@ -1089,28 +1163,28 @@ yield return new WaitForSeconds(Mathf.Max(0.05f, PostEventWaitSec.Value));
         }
 
         private GameObject ResolveSpawnerAlias(GameObject looked)
-{
-    if (looked == null) return null;
+        {
+            if (looked == null) return null;
 
-    string n = looked.name ?? "";
-    Vector3 near = PlayerPos();
-    const float r = 150f;
+            string n = looked.name ?? "";
+            Vector3 near = PlayerPos();
+            const float r = 150f;
 
-    // Берем ближайший АКТИВНЫЙ, чтобы не попасть в неактивный LOD/дубликат.
-    if (n.StartsWith("packaging sheets", StringComparison.OrdinalIgnoreCase))
-        return FindNearestActiveInScene("PickSheets", near, r, go => go.GetComponent<PlayMakerFSM>() != null) ?? FindGODeep("PickSheets");
+            // Берем ближайший АКТИВНЫЙ, чтобы не попасть в неактивный LOD/дубликат.
+            if (n.StartsWith("packaging sheets", StringComparison.OrdinalIgnoreCase))
+                return FindNearestActiveInScene("PickSheets", near, r, go => go.GetComponent<PlayMakerFSM>() != null) ?? FindGODeep("PickSheets");
 
-    if (n.StartsWith("plastic trays", StringComparison.OrdinalIgnoreCase))
-        return FindNearestActiveInScene("PickTrays", near, r, go => go.GetComponent<PlayMakerFSM>() != null) ?? FindGODeep("PickTrays");
+            if (n.StartsWith("plastic trays", StringComparison.OrdinalIgnoreCase))
+                return FindNearestActiveInScene("PickTrays", near, r, go => go.GetComponent<PlayMakerFSM>() != null) ?? FindGODeep("PickTrays");
 
-    if (n.StartsWith("chargers box", StringComparison.OrdinalIgnoreCase))
-        return FindNearestActiveInScene("PickChargers", near, r, go => go.GetComponent<PlayMakerFSM>() != null) ?? FindGODeep("PickChargers");
+            if (n.StartsWith("chargers box", StringComparison.OrdinalIgnoreCase))
+                return FindNearestActiveInScene("PickChargers", near, r, go => go.GetComponent<PlayMakerFSM>() != null) ?? FindGODeep("PickChargers");
 
-    if (n.StartsWith("manuals box", StringComparison.OrdinalIgnoreCase))
-        return FindNearestActiveInScene("PickManuals", near, r, go => go.GetComponent<PlayMakerFSM>() != null) ?? FindGODeep("PickManuals");
+            if (n.StartsWith("manuals box", StringComparison.OrdinalIgnoreCase))
+                return FindNearestActiveInScene("PickManuals", near, r, go => go.GetComponent<PlayMakerFSM>() != null) ?? FindGODeep("PickManuals");
 
-    return looked;
-}
+            return looked;
+        }
 
         private GameObject FindGODeep(string name)
         {
@@ -1143,39 +1217,39 @@ yield return new WaitForSeconds(Mathf.Max(0.05f, PostEventWaitSec.Value));
             return GameObject.Find(name);
         }
 
-private GameObject FindNearestActiveInScene(string name, Vector3 around, float maxDist, Func<GameObject, bool> extra = null)
-{
-    GameObject best = null;
-    float bestDist = float.MaxValue;
-
-    var all = Resources.FindObjectsOfTypeAll<Transform>();
-    for (int i = 0; i < all.Length; i++)
-    {
-        var t = all[i];
-        if (t == null) continue;
-
-        var go = t.gameObject;
-        if (go == null) continue;
-        if (!string.Equals(go.name, name, StringComparison.OrdinalIgnoreCase)) continue;
-        if (!go.activeInHierarchy) continue;
-
-        if (extra != null && !extra(go)) continue;
-
-        float d = Vector3.Distance(go.transform.position, around);
-        if (d <= maxDist && d < bestDist)
+        private GameObject FindNearestActiveInScene(string name, Vector3 around, float maxDist, Func<GameObject, bool> extra = null)
         {
-            best = go;
-            bestDist = d;
+            GameObject best = null;
+            float bestDist = float.MaxValue;
+
+            var all = Resources.FindObjectsOfTypeAll<Transform>();
+            for (int i = 0; i < all.Length; i++)
+            {
+                var t = all[i];
+                if (t == null) continue;
+
+                var go = t.gameObject;
+                if (go == null) continue;
+                if (!string.Equals(go.name, name, StringComparison.OrdinalIgnoreCase)) continue;
+                if (!go.activeInHierarchy) continue;
+
+                if (extra != null && !extra(go)) continue;
+
+                float d = Vector3.Distance(go.transform.position, around);
+                if (d <= maxDist && d < bestDist)
+                {
+                    best = go;
+                    bestDist = d;
+                }
+            }
+
+            return best;
         }
-    }
 
-    return best;
-}
-
-private static bool IsValidActive(GameObject go)
-{
-    return go != null && go.activeInHierarchy;
-}
+        private static bool IsValidActive(GameObject go)
+        {
+            return go != null && go.activeInHierarchy;
+        }
 
         private static Transform FindChildDeep(Transform root, string childName)
         {
