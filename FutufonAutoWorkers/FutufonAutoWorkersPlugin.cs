@@ -3,12 +3,13 @@ using BepInEx.Configuration;
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 using HutongGames.PlayMaker;
 
 namespace FutufonAutoWorker
 {
-    [BepInPlugin("com.futufon.autoworker", "Futufon AutoWorker (autofocus8)", "0.3.1")]
+    [BepInPlugin("com.futufon.autoworker", "Futufon AutoWorker (autofocus9)", "0.3.2")]
     public class Plugin : BaseUnityPlugin
     {
         private bool _busy;
@@ -156,11 +157,10 @@ TeleportYOffset = Config.Bind("Auto", "TeleportYOffset", 0.02f, "Small Y offset 
                     GameObject charger = null;
                     GameObject manual = null;
 
-                    yield return EnsureSpawned("plastic tray(Clone)", _pickTrays, o => tray = o);
-                    yield return EnsureSpawned("package(Clone)", _pickSheets, o => pack = o);
-                    yield return EnsureSpawned("charger(Clone)", _pickChargers, o => charger = o);
-                    yield return EnsureSpawned("manual(Clone)", _pickManuals, o => manual = o);
-
+                    yield return EnsureSpawned("plastic tray(Clone)", _pickTrays, _srcTrays, o => tray = o);
+                    yield return EnsureSpawned("package(Clone)", _pickSheets, _srcSheets, o => pack = o);
+                    yield return EnsureSpawned("charger(Clone)", _pickChargers, _srcChargers, o => charger = o);
+                    yield return EnsureSpawned("manual(Clone)", _pickManuals, _srcManuals, o => manual = o);
                     Log(string.Format("Auto: have items tray={0}, pack={1}, charger={2}, manual={3}",
                         Short(tray), Short(pack), Short(charger), Short(manual)));
 
@@ -283,52 +283,130 @@ TeleportYOffset = Config.Bind("Auto", "TeleportYOffset", 0.02f, "Small Y offset 
             Log("Auto: tray inserted into package");
         }
 
-        private IEnumerator EnsureSpawned(string itemName, GameObject pick, System.Action<GameObject> setFound, int tries = 6)
+        private IEnumerator EnsureSpawned(string itemName, GameObject pick, GameObject openOwner, Action<GameObject> setFound, int tries = 6)
         {
-            GameObject found = FindSpawnedNear(itemName, pick);
+            if (pick == null)
+            {
+                Log($"EnsureSpawned: {itemName} pick=null");
+                setFound(null);
+                yield break;
+            }
+
+            Log($"EnsureSpawned: {itemName} pick={pick.name} openOwner={(openOwner!=null?openOwner.name:"null")} playerPos={PlayerPos()}");
+
+            var found = FindSpawnedNear(itemName, pick);
             if (found != null)
             {
                 setFound(found);
                 yield break;
             }
 
-            if (pick == null)
+            var openTarget = openOwner != null ? openOwner : pick;
+
+            for (var i = 0; i < tries; i++)
             {
-                setFound(null);
-                yield break;
-            }
+                // Если есть open=false - сначала открываем
+                if (TryGetBoolVar(openTarget, "open", out var isOpen) && !isOpen)
+                {
+                    Log($"Spawn: {itemName} - {openTarget.name} open=false, opening via {pick.name}");
+                    Proceed(pick);
+                    yield return WaitForBool(openTarget, "open", true, 2.5f);
+                    yield return WaitSeconds(0.15f);
+                }
 
-            for (int i = 0; i < tries; i++)
-            {
-                Log(string.Format("Spawn: request {0} via {1} try={2}/{3}", itemName, Short(pick), i + 1, tries));
-
-                // Some Pick* spawners only have PROCEED/FINISHED.
-                TrySendEventToAnyFsmWithEvent(pick, "PROCEED", "Use", "Pick");
-                yield return new WaitForSeconds(0.05f);
-                TrySendEventToAnyFsmWithEvent(pick, "FINISHED", "Use", "Pick");
-
-                yield return new WaitForSeconds(Mathf.Max(0.05f, SpawnWaitSec.Value));
+                // Пытаемся заспавнить
+                Log($"Spawn: {itemName} by {pick.name} (try {i + 1}/{tries})");
+                Proceed(pick);
+                yield return WaitSeconds(SpawnWaitSec.Value);
 
                 found = FindSpawnedNear(itemName, pick);
                 if (found != null)
-                    break;
+                {
+                    setFound(found);
+                    yield break;
+                }
+
+                // Фолбек: если open-переменной нет, у некоторых объектов первый PROCEED только "открывает"
+                if (!TryGetBoolVar(openTarget, "open", out _))
+                {
+                    Log($"Spawn: {itemName} - open var not found, sending second PROCEED (open-then-spawn pattern)");
+                    Proceed(pick);
+                    yield return WaitSeconds(SpawnWaitSec.Value);
+
+                    found = FindSpawnedNear(itemName, pick);
+                    if (found != null)
+                    {
+                        setFound(found);
+                        yield break;
+                    }
+                }
             }
 
-            setFound(found);
+            setFound(null);
         }
-
 
 
         private bool ProceedSpawner(GameObject spawner, string ev = "PROCEED")
 {
-    if (spawner == null) return false;
+    if (spawner == null)
+    {
+        Log($"Proceed: spawner=null ev={ev}");
+        return false;
+    }
 
     // ВАЖНО: у Pick* объектов часто несколько FSM. Первый может быть не "Use".
     // Поэтому целимся сначала в FSM "Use", затем пробуем "Pick", и только потом - в первый FSM.
-    if (TrySendEventToFsm(spawner, "Use", ev)) return true;
-    if (TrySendEventToFsm(spawner, "Pick", ev)) return true;
-    return TrySendEventToFsm(spawner, null, ev);
+    bool okUse = TrySendEventToFsm(spawner, "Use", ev);
+    if (okUse)
+    {
+        Log($"Proceed: sent {ev} to {spawner.name} fsm=Use");
+        return true;
+    }
+
+    bool okPick = TrySendEventToFsm(spawner, "Pick", ev);
+    if (okPick)
+    {
+        Log($"Proceed: sent {ev} to {spawner.name} fsm=Pick");
+        return true;
+    }
+
+    bool okAny = TrySendEventToFsm(spawner, null, ev);
+    if (okAny)
+    {
+        Log($"Proceed: sent {ev} to {spawner.name} fsm=first");
+        return true;
+    }
+
+    // Если не удалось - выведем список FSM (обычно сразу видно, куда целиться)
+    try
+    {
+        var fsms = spawner.GetComponents<PlayMakerFSM>();
+        if (fsms == null || fsms.Length == 0) Log($"Proceed: FAILED {ev} to {spawner.name} (no FSM)");
+        else
+        {
+            string names = string.Join(", ", fsms.Select(f => f != null ? f.FsmName : "null").ToArray());
+            Log($"Proceed: FAILED {ev} to {spawner.name} fsms=[{names}]");
+        }
+    }
+    catch (Exception e) { Logger.LogError(e); }
+
+    return false;
 }
+
+        private void Proceed(GameObject spawner)
+        {
+            ProceedSpawner(spawner, "PROCEED");
+        }
+
+        private YieldInstruction WaitSeconds(float sec)
+        {
+            ProceedSpawner(spawner, "PROCEED");
+        }
+
+        private YieldInstruction WaitSeconds(float sec)
+        {
+            return new WaitForSeconds(Mathf.Max(0.01f, sec));
+        }
 
         private GameObject FindSpawnedNear(string expectedName, GameObject spawner)
         {
@@ -339,7 +417,7 @@ TeleportYOffset = Config.Bind("Auto", "TeleportYOffset", 0.02f, "Small Y offset 
 
             Vector3 playerPos = PlayerPos();
             Vector3 anchorPos = spawner != null ? spawner.transform.position : playerPos;
-            Vector3 palletPos = _pallet != null ? _pallet.transform.position : anchorPos;
+            Vector3 palletPos = _palletTrigger != null ? _palletTrigger.position : (_palletPlayer != null ? _palletPlayer.transform.position : anchorPos);
 
             float r = Mathf.Max(0.5f, FindRadius.Value);
 
@@ -625,12 +703,40 @@ yield return new WaitForSeconds(Mathf.Max(0.05f, PostEventWaitSec.Value));
             if (!Physics.Raycast(ray, out hit, dist)) return null;
             return hit.collider != null ? hit.collider.gameObject : null;
         }
+
+        private GameObject FindGO(string pathOrName)
+        {
+            if (string.IsNullOrEmpty(pathOrName)) return null;
+
+            // Unity supports searching by path with '/'. This finds only active objects.
+            try
+            {
+                var go = GameObject.Find(pathOrName);
+                if (go != null) return go;
+            }
+            catch { }
+
+            // Fallback: try by last segment (inactive objects too)
+            var name = pathOrName;
+            var slash = name.LastIndexOf('/');
+            if (slash >= 0 && slash + 1 < name.Length) name = name.Substring(slash + 1);
+            return FindGODeep(name);
+        }
         private Vector3 PlayerPos()
         {
+            // В MWC камера не всегда имеет тег MainCamera, поэтому Camera.main иногда null.
             var cam = Camera.main;
             if (cam != null) return cam.transform.position;
-            return Vector3.zero;
+
+            var fps = FindGO("PLAYER/Pivot/AnimPivot/Camera/FPSCamera");
+            if (fps != null) return fps.transform.position;
+
+            var player = FindGO("PLAYER");
+            if (player != null) return player.transform.position;
+
+            return transform.position;
         }
+
 
         private void SendEventToFsm(GameObject go, string fsmName, string ev)
         {
@@ -663,6 +769,35 @@ yield return new WaitForSeconds(Mathf.Max(0.05f, PostEventWaitSec.Value));
             catch (Exception e) { Logger.LogError(e); }
             return true;
         }
+
+        private bool TryGetBoolVar(GameObject go, string varName, out bool value)
+        {
+            value = false;
+            if (go == null) return false;
+
+            foreach (var fsm in go.GetComponents<PlayMakerFSM>())
+            {
+                if (fsm == null || fsm.FsmVariables == null) continue;
+                var vb = fsm.FsmVariables.FindFsmBool(varName);
+                if (vb != null)
+                {
+                    value = vb.Value;
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private IEnumerator WaitForBool(GameObject go, string varName, bool expected, float timeoutSec)
+        {
+            var start = Time.time;
+            while (Time.time - start < timeoutSec)
+            {
+                if (TryGetBoolVar(go, varName, out var v) && v == expected) yield break;
+                yield return null;
+            }
+        }
+
 
         private bool FsmHasEvent(PlayMakerFSM f, string ev)
         {
@@ -844,20 +979,29 @@ yield return new WaitForSeconds(Mathf.Max(0.05f, PostEventWaitSec.Value));
 
         private GameObject FindGODeep(string name)
         {
-            // GameObject.Find doesn't return inactive objects; Resources scan does.
+            // GameObject.Find не возвращает неактивные, а Resources scan - возвращает.
             try
             {
                 Transform[] all = Resources.FindObjectsOfTypeAll<Transform>();
+
+                GameObject any = null;
+                GameObject active = null;
+
                 for (int i = 0; i < all.Length; i++)
                 {
                     var tr = all[i];
                     if (tr == null) continue;
-                    if (!string.Equals(tr.name, name, StringComparison.Ordinal)) continue;
 
-                    // Ignore prefabs/assets (best-effort; some UnityEngine builds do not expose GameObject.scene)
-                    if (tr.gameObject.hideFlags != HideFlags.None && tr.gameObject.hideFlags != HideFlags.HideInHierarchy) continue;
-                    return tr.gameObject;
+                    if (!string.Equals(tr.name, name, StringComparison.OrdinalIgnoreCase)) continue;
+
+                    var go = tr.gameObject;
+                    if (go == null) continue;
+
+                    if (any == null) any = go;
+                    if (go.activeInHierarchy) { active = go; break; }
                 }
+
+                return active ?? any;
             }
             catch { }
 
@@ -936,10 +1080,11 @@ private static bool IsValidActive(GameObject go)
                 var go = t.gameObject;
                 if (go == null) continue;
 
-                if (!go.scene.IsValid()) continue;
+                // В MWC многие рантайм-объекты имеют hideFlags != None (например DontSave),
+                // поэтому НЕ фильтруем по hideFlags. Оставляем только реальные объекты в иерархии.
                 if (!go.activeInHierarchy) continue;
 
-                if (!go.name.StartsWith(nameOrPrefix, StringComparison.Ordinal)) continue;
+                if (!go.name.StartsWith(nameOrPrefix, StringComparison.OrdinalIgnoreCase)) continue;
 
                 float d = Vector3.Distance(around, go.transform.position);
                 if (d <= radius && d < best)
@@ -960,8 +1105,7 @@ private static bool IsValidActive(GameObject go)
             float best = float.MaxValue;
             GameObject bestGo = null;
 
-            // FindObjectsOfType иногда не видит часть объектов (LOD/активность/особенности сцены).
-            // Resources.FindObjectsOfTypeAll надежнее для поиска по имени в сцене.
+            // Resources.FindObjectsOfTypeAll надежнее для поиска в сцене.
             var all = Resources.FindObjectsOfTypeAll<Transform>();
             for (int i = 0; i < all.Length; i++)
             {
@@ -971,13 +1115,9 @@ private static bool IsValidActive(GameObject go)
                 var go = t.gameObject;
                 if (go == null) continue;
 
-                // отсекаем ассеты и не-сценовые объекты
-                if (!go.scene.IsValid()) continue;
-
-                // для нашей логики нужны только реально существующие объекты сцены
                 if (!go.activeInHierarchy) continue;
 
-                if (!string.Equals(go.name, exactName, StringComparison.Ordinal)) continue;
+                if (!string.Equals(go.name, exactName, StringComparison.OrdinalIgnoreCase)) continue;
 
                 float d = Vector3.Distance(around, go.transform.position);
                 if (d <= radius && d < best)
