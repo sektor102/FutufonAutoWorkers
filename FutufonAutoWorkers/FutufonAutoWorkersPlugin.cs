@@ -1,9 +1,9 @@
 using BepInEx;
 using BepInEx.Configuration;
-using HarmonyLib;
 using HutongGames.PlayMaker;
 using System;
 using System.Collections;
+using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
 
@@ -19,6 +19,9 @@ namespace FutufonAutoWorker
         private ConfigEntry<float> SearchRadius;
         private ConfigEntry<bool> TeleportPlayerToPick;
         private ConfigEntry<bool> TeleportStuffToWorkbench;
+        private ConfigEntry<bool> ManualBoxesMode;
+        private ConfigEntry<bool> RequireWaitButton;
+        private ConfigEntry<bool> InstantiateFallback;
 
         private bool _running;
         private Coroutine _loop;
@@ -31,6 +34,9 @@ namespace FutufonAutoWorker
 
         private GameObject _workTable;
 
+        // Cache for inactive templates (prefabs/disabled objects) to spawn without hover-raycast.
+        private readonly Dictionary<string, GameObject> _templateCache = new Dictionary<string, GameObject>(StringComparer.Ordinal);
+
         private void Awake()
         {
             Hotkey = Config.Bind("General", "Hotkey", KeyCode.F8, "Toggle automation");
@@ -41,7 +47,11 @@ namespace FutufonAutoWorker
             TeleportPlayerToPick = Config.Bind("Teleport", "TeleportPlayerToPick", true, "Teleport player near Pick* spawners to ensure Wait button state");
             TeleportStuffToWorkbench = Config.Bind("Teleport", "TeleportStuffToWorkbench", true, "Teleport boxes and parts to work_table2 (if found) or near player");
 
-            Logger.LogInfo("[FutufonAutoWorker] Loaded");
+ManualBoxesMode = Config.Bind("Auto", "ManualBoxesMode", true, "If true, do not spawn initial boxes from Pick*; expects you to place chargers box/packaging sheets/manuals box/plastic trays manually.");
+RequireWaitButton = Config.Bind("Auto", "RequireWaitButton", false, "If true, only send PROCEED/USE when FSM Active State is exactly 'Wait button'. Otherwise the step is skipped + logged.");
+InstantiateFallback = Config.Bind("Auto", "InstantiateFallback", true, "If true, when expected object is not spawned, try to clone an inactive template by exact name and SetActive(true).");
+
+Logger.LogInfo("[FutufonAutoWorker] Loaded");
         }
 
         private void Update()
@@ -78,237 +88,313 @@ namespace FutufonAutoWorker
             }
         }
 
+
+
         private IEnumerator AutoOnce()
-        {
-            if (_pickChargers == null || _pickSheets == null || _pickManuals == null || _pickTrays == null)
-            {
-                Log("Cache: missing Pick* objects. Make sure you are inside the factory job area.");
-                yield break;
-            }
+{
+    var player = PlayerGO();
+    if (player == null)
+    {
+        Log("AutoOnce: Player not found");
+        yield break;
+    }
 
-            var anchor = AnchorPos();
+    var anchor = AnchorPos();
 
-            // 1) Ensure boxes exist (spawn from Pick* if needed), then bring them to workbench
-            GameObject chargersBox =
-                FindNearestSpawnedByName("chargers box(Clone)", _pickChargers.transform.position, 25.0f) ??
-                FindNearestSpawnedByName("chargers box(Clone)", anchor, SearchRadius.Value);
-            if (chargersBox == null)
-            {
-                GameObject tmp_chargersBox = null;
-                yield return StartCoroutine(SpawnFromPick(_pickChargers, "chargers box(Clone)", g => tmp_chargersBox = g));
-                chargersBox = tmp_chargersBox;
-            }
-            GameObject sheets =
-                FindNearestSpawnedByName("packaging sheets(Clone)", _pickSheets.transform.position, 25.0f) ??
-                FindNearestSpawnedByName("packaging sheets(Clone)", anchor, SearchRadius.Value);
+    // 1) Boxes: manual by default, or spawn from Pick* if ManualBoxesMode=false.
+    GameObject chargersBox = FindNearestSpawnedByName("chargers box(Clone)", anchor, SearchRadius.Value);
+    GameObject sheetsBox   = FindNearestSpawnedByName("packaging sheets(Clone)", anchor, SearchRadius.Value);
+    GameObject manualsBox  = FindNearestSpawnedByName("manuals box(Clone)", anchor, SearchRadius.Value);
+    GameObject traysBox    = FindNearestSpawnedByName("plastic trays(Clone)", anchor, SearchRadius.Value);
 
-            if (sheets == null)
-            {
-                GameObject tmp_sheets = null;
-                yield return StartCoroutine(SpawnFromPick(_pickSheets, "packaging sheets(Clone)", g => tmp_sheets = g));
-                sheets = tmp_sheets;
-            }
-            GameObject manualsBox =
-                FindNearestSpawnedByName("manuals box(Clone)", _pickManuals.transform.position, 25.0f) ??
-                FindNearestSpawnedByName("manuals box(Clone)", anchor, SearchRadius.Value);
+    if (!ManualBoxesMode.Value)
+    {
+        if (chargersBox == null) yield return SpawnFromPick(_pickChargers, "chargers box(Clone)", r => chargersBox = r);
+        if (sheetsBox   == null) yield return SpawnFromPick(_pickSheets,   "packaging sheets(Clone)", r => sheetsBox = r);
+        if (manualsBox  == null) yield return SpawnFromPick(_pickManuals,  "manuals box(Clone)", r => manualsBox = r);
+        if (traysBox    == null) yield return SpawnFromPick(_pickTrays,    "plastic trays(Clone)", r => traysBox = r);
+    }
 
-            if (manualsBox == null)
-            {
-                GameObject tmp_manualsBox = null;
-                yield return StartCoroutine(SpawnFromPick(_pickManuals, "manuals box(Clone)", g => tmp_manualsBox = g));
-                manualsBox = tmp_manualsBox;
-            }
-            GameObject traysBox =
-                FindNearestSpawnedByName("plastic trays(Clone)", _pickTrays.transform.position, 25.0f) ??
-                FindNearestSpawnedByName("plastic trays(Clone)", anchor, SearchRadius.Value);
+    if (chargersBox == null || sheetsBox == null || manualsBox == null || traysBox == null)
+    {
+        Log($"Auto: missing boxes chargers={(chargersBox!=null?"ok":"null")} sheets={(sheetsBox!=null?"ok":"null")} manuals={(manualsBox!=null?"ok":"null")} trays={(traysBox!=null?"ok":"null")}");
+        yield break;
+    }
 
-            if (traysBox == null)
-            {
-                GameObject tmp_traysBox = null;
-                yield return StartCoroutine(SpawnFromPick(_pickTrays, "plastic trays(Clone)", g => tmp_traysBox = g));
-                traysBox = tmp_traysBox;
-            }
+    // 2) Stabilize placement near worktable.
+    if (TeleportStuffToWorkbench.Value)
+    {
+        TeleportToAnchor(chargersBox, 0);
+        TeleportToAnchor(sheetsBox,   1);
+        TeleportToAnchor(manualsBox,  2);
+        TeleportToAnchor(traysBox,    3);
+        yield return WaitSeconds(Mathf.Max(SpawnWaitSec.Value, 0.7f));
+    }
 
-            if (chargersBox == null || sheets == null || manualsBox == null || traysBox == null)
-            {
-                Log($"Auto: missing boxes chargers={Ok(chargersBox)} sheets={Ok(sheets)} manuals={Ok(manualsBox)} trays={Ok(traysBox)}");
-                yield break;
-            }
+    // 3) Open boxes that support it.
+    yield return EnsureOpenedIfHasBool(chargersBox, "open");
+    yield return EnsureOpenedIfHasBool(manualsBox, "open");
 
-            if (TeleportStuffToWorkbench.Value)
-            {
-                TeleportToAnchor(chargersBox, 0);
-                TeleportToAnchor(sheets, 1);
-                TeleportToAnchor(manualsBox, 2);
-                TeleportToAnchor(traysBox, 3);
-                yield return WaitSeconds(Mathf.Max(SpawnWaitSec.Value, 0.7f));
-            }
+    // 4) Spawn parts.
+    GameObject charger = null;
+    GameObject manual  = null;
+    GameObject tray    = null;
+    GameObject pack    = null;
 
-            // 2) Open chargers/manuals boxes if they have variable "open"
-            yield return EnsureOpenedIfHasBool(chargersBox, "open");
-            yield return EnsureOpenedIfHasBool(manualsBox, "open");
+    yield return SpawnFromSource(chargersBox, "charger(Clone)", r => charger = r);
+    yield return SpawnFromSource(manualsBox,  "manual(Clone)",  r => manual  = r);
+    yield return SpawnFromSource(traysBox,    "plastic tray(Clone)", r => tray = r);
+    yield return SpawnFromSource(sheetsBox,   "package(Clone)", r => pack = r);
 
-            // 3) Spawn parts
-            GameObject charger = FindNearestSpawnedByName("charger(Clone)", anchor, SearchRadius.Value);
-            if (charger == null)
-            {
-                GameObject tmp_charger = null;
-                yield return StartCoroutine(SpawnFromSource(chargersBox, "charger(Clone)", g => tmp_charger = g));
-                charger = tmp_charger;
-            }
-            GameObject manual = FindNearestSpawnedByName("manual(Clone)", anchor, SearchRadius.Value);
-            if (manual == null)
-            {
-                GameObject tmp_manual = null;
-                yield return StartCoroutine(SpawnFromSource(manualsBox, "manual(Clone)", g => tmp_manual = g));
-                manual = tmp_manual;
-            }
-            GameObject tray = FindNearestSpawnedByName("plastic tray(Clone)", anchor, SearchRadius.Value);
-            if (tray == null)
-            {
-                GameObject tmp_tray = null;
-                yield return StartCoroutine(SpawnFromSource(traysBox, "plastic tray(Clone)", g => tmp_tray = g));
-                tray = tmp_tray;
-            }
-            GameObject pack = FindNearestSpawnedByName("package(Clone)", anchor, SearchRadius.Value);
-            if (pack == null)
-            {
-                GameObject tmp_pack = null;
-                yield return StartCoroutine(SpawnFromSource(sheets, "package(Clone)", g => tmp_pack = g));
-                pack = tmp_pack;
-            }
+    if (charger == null || manual == null || tray == null || pack == null)
+    {
+        Log($"Auto: missing items charger={(charger!=null?"ok":"null")} manual={(manual!=null?"ok":"null")} tray={(tray!=null?"ok":"null")} pack={(pack!=null?"ok":"null")}");
+        yield break;
+    }
 
-            if (charger == null || manual == null || tray == null || pack == null)
-            {
-                Log($"Auto: missing items after spawn charger={Ok(charger)} manual={Ok(manual)} tray={Ok(tray)} pack={Ok(pack)}");
-                yield break;
-            }
+    // 5) Assemble tray via existing trigger-logic (keeps the game happy).
+    yield return AssembleTray(tray, charger, manual);
 
-            if (TeleportStuffToWorkbench.Value)
-            {
-                TeleportToAnchor(charger, 4);
-                TeleportToAnchor(manual, 5);
-                TeleportToAnchor(tray, 6);
-                TeleportToAnchor(pack, 7);
-                yield return WaitSeconds(Mathf.Max(SpawnWaitSec.Value, 0.7f));
-            }
+    // 6) Fold package to Stage=5.
+    yield return EnsurePackageStage(pack, 5, trySendUse:true);
 
-            // 4) Assemble tray (put charger + manual into tray)
-            yield return AssembleTray(tray, charger, manual);
+    // 7) Put tray into package (existing trigger-logic).
+    yield return PutTrayIntoPackage(pack, tray);
 
-            // 5) Fold package 5 times (USE)
-            yield return UseFsm(pack, "Use", "USE", 5);
+    // 8) Finish package - force flags and Stage=4 (final).
+    yield return EnsurePackageFlags(pack, true, true, true);
+    yield return EnsurePackageStage(pack, 4, trySendUse:true);
 
-            // 6) Put assembled tray into package trigger, then final USE
-            yield return PutTrayIntoPackage(pack, tray);
-            yield return UseFsm(pack, "Use", "USE", 1);
-        }
+    yield break;
+}
 
-        // ---------------------------
+// ---------------------------
         // Spawning logic
         // ---------------------------
 
-        private IEnumerator SpawnFromPick(GameObject pick, string expectedName, Action<GameObject> setFound)
+        
+private GameObject GetInactiveTemplate(string exactName)
+{
+    if (string.IsNullOrEmpty(exactName)) return null;
+
+    GameObject cached;
+    if (_templateCache.TryGetValue(exactName, out cached) && cached != null)
+        return cached;
+
+    // Unity note: Resources.FindObjectsOfTypeAll returns inactive objects too, but it's expensive.
+    GameObject found = null;
+    foreach (var go in Resources.FindObjectsOfTypeAll<GameObject>())
+    {
+        if (go == null) continue;
+        if (!string.Equals(go.name, exactName, StringComparison.Ordinal)) continue;
+        if (go.activeInHierarchy) continue; // we want the inactive template
+        found = go;
+        break;
+    }
+
+    if (found != null)
+        _templateCache[exactName] = found;
+
+    return found;
+}
+
+private GameObject SpawnFromTemplate(string exactName, Vector3 pos)
+{
+    var tmpl = GetInactiveTemplate(exactName);
+    if (tmpl == null)
+    {
+        Log($"TEMPLATE MISSING: {exactName}");
+        return null;
+    }
+
+    var obj = Instantiate(tmpl);
+    // Instantiating an inactive template keeps it inactive, so we must activate it explicitly.
+    obj.SetActive(true);
+    // Avoid '(Clone)(Clone)' name drift.
+    obj.name = exactName;
+
+    obj.transform.position = pos;
+    obj.transform.rotation = tmpl.transform.rotation;
+    return obj;
+}
+
+private bool IsWaitButton(PlayMakerFSM fsm)
+{
+    return fsm != null && string.Equals(fsm.ActiveStateName, "Wait button", StringComparison.Ordinal);
+}
+
+private IEnumerator SpawnFromPick(GameObject pick, string expectedName, Action<GameObject> setFound)
+{
+    if (pick == null)
+    {
+        Log($"SpawnFromPick: pick=null expected={expectedName}");
+        setFound?.Invoke(null);
+        yield break;
+    }
+
+    var player = PlayerGO();
+    var playerPos = player != null ? player.transform.position : pick.transform.position;
+
+    var fsm = GetFsm(pick, "Use") ?? pick.GetComponent<PlayMakerFSM>();
+    var state = fsm != null ? fsm.ActiveStateName : "<no fsm>";
+    Log($"DBG SpawnFromPick TRY expected={expectedName}: target={pick.name} fsm={(fsm != null ? fsm.FsmName : "<none>")} state={state}");
+
+    // If the game requires 'hover' for PROCEED, we can enforce it (RequireWaitButton) or skip and fallback to template spawn.
+    if (fsm != null)
+    {
+        if (!RequireWaitButton.Value || IsWaitButton(fsm))
         {
-            if (pick == null)
-                yield break;
-
-            // Ensure player is close and looking at Pick* so its FSM becomes "Wait button"
-            if (TeleportPlayerToPick.Value)
-                TeleportPlayerNear(pick);
-
-            AimCameraAt(pick, 30f);
-            yield return ForceWaitButton(pick, 1.2f);
-
-            // Try PROCEED on Pick* itself
-            LogCtx($"SpawnFromPick BEFORE PROCEED expected={expectedName}", pick);
-            yield return SendUseEvent(pick, "PROCEED");
-            yield return WaitSeconds(Mathf.Max(SpawnWaitSec.Value, 0.7f));
-            DebugNameStats(expectedName);
-
-            // Fallback: also try PROCEED on spawner child (some versions gate differently)
-            var spawnerChild = FindChildByName(pick.transform, "Spawner");
-            if (spawnerChild != null)
-            {
-                yield return SendUseEvent(spawnerChild.gameObject, "PROCEED");
-                yield return WaitSeconds(Mathf.Max(SpawnWaitSec.Value, 0.7f));
-            }
-            DebugNameStats(expectedName);
-
-            // Find spawned box near Pick*
-            var player = PlayerGO();
-            var nearPos = player != null ? player.transform.position : pick.transform.position;
-
-            // коробка часто появляется перед игроком, а не у Pick*
-            var found = FindNearestSpawnedByName(expectedName, nearPos, 12.0f);
-
-            if (found == null)
-                Log($"MISSING: {expectedName.Replace("(Clone)", "").Trim()}");
-
-            setFound?.Invoke(found);
-            yield break;
+            fsm.SendEvent("PROCEED");
+            yield return WaitSeconds(Mathf.Max(SpawnWaitSec.Value, 0.6f));
         }
-
-        private IEnumerator SpawnFromSource(GameObject src, string expectedName, Action<GameObject> setFound)
+        else
         {
-            if (src == null)
-                yield break;
-
-            // ВАЖНО: для коробок тоже нужно быть рядом и смотреть на них
-            if (TeleportPlayerToPick.Value)
-                TeleportPlayerNear(src);
-
-            AimCameraAt(src, 30f);
-            yield return ForceWaitInteractable(src, 1.2f);
-            LogCtx($"SpawnFromSource BEFORE PROCEED expected={expectedName}", src);
-
-            // У коробок ты сам проверил - есть PROCEED
-            yield return SendUseEvent(src, "PROCEED");
-            yield return WaitSeconds(Mathf.Max(SpawnWaitSec.Value, 0.7f));
-            DebugNameStats(expectedName);
-
-
-            var player = PlayerGO();
-            var nearPos = player != null ? player.transform.position : src.transform.position;
-
-            // предметы из коробок тоже часто появляются у игрока
-            var found = FindNearestSpawnedByName(expectedName, nearPos, 12.0f);
-            if (found == null)
-                Log($"MISSING: {expectedName.Replace("(Clone)", "").Trim()}");
-
-            setFound?.Invoke(found);
+            Log($"SKIP PROCEED: {pick.name} state='{state}' (need 'Wait button')");
         }
+    }
 
+    var found = FindNearestSpawnedByName(expectedName, playerPos, SearchRadius.Value);
 
-        private IEnumerator EnsureOpenedIfHasBool(GameObject box, string boolVarName)
+    if (found == null && InstantiateFallback.Value)
+    {
+        found = SpawnFromTemplate(expectedName, playerPos + new Vector3(0.0f, 0.2f, 0.35f));
+        if (found != null) Log($"FALLBACK SPAWN (template): {expectedName}");
+    }
+
+    if (found == null) Log($"MISSING: {expectedName}");
+
+    setFound?.Invoke(found);
+    yield break;
+}
+
+private IEnumerator SpawnFromSource(GameObject src, string expectedName, Action<GameObject> setFound)
+{
+    if (src == null)
+    {
+        Log($"SpawnFromSource: src=null expected={expectedName}");
+        setFound?.Invoke(null);
+        yield break;
+    }
+
+    var player = PlayerGO();
+    var playerPos = player != null ? player.transform.position : src.transform.position;
+
+    var fsm = GetFsm(src, "Use") ?? src.GetComponent<PlayMakerFSM>();
+    var state = fsm != null ? fsm.ActiveStateName : "<no fsm>";
+    Log($"DBG SpawnFromSource TRY expected={expectedName}: target={src.name} fsm={(fsm != null ? fsm.FsmName : "<none>")} state={state}");
+
+    if (fsm != null)
+    {
+        if (!RequireWaitButton.Value || IsWaitButton(fsm))
         {
-            if (box == null)
-                yield break;
-
-            var fsm = GetFsm(box, "Use");
-            if (fsm == null)
-                yield break;
-
-            var b = GetBoolVar(fsm, boolVarName);
-            if (b == null)
-                yield break; // no open variable, do nothing
-
-            int tries = 0;
-            while (tries++ < 5 && !b.Value)
-            {
-                yield return ForceWaitInteractable(box, 1.2f);
-                yield return SendUseEvent(box, "PROCEED");
-                yield return WaitSeconds(Mathf.Max(SpawnWaitSec.Value, 0.7f));
-                b = GetBoolVar(fsm, boolVarName);
-                if (b == null) break;
-            }
+            fsm.SendEvent("PROCEED");
+            yield return WaitSeconds(Mathf.Max(SpawnWaitSec.Value, 0.6f));
         }
+        else
+        {
+            Log($"SKIP PROCEED: {src.name} state='{state}' (need 'Wait button')");
+        }
+    }
 
-        // ---------------------------
-        // Assembly
-        // ---------------------------
+    var found = FindNearestSpawnedByName(expectedName, playerPos, SearchRadius.Value);
 
-        private IEnumerator AssembleTray(GameObject tray, GameObject charger, GameObject manual)
+    if (found == null && InstantiateFallback.Value)
+    {
+        found = SpawnFromTemplate(expectedName, playerPos + new Vector3(0.0f, 0.2f, 0.35f));
+        if (found != null) Log($"FALLBACK SPAWN (template): {expectedName}");
+    }
+
+    if (found == null) Log($"MISSING: {expectedName}");
+
+    setFound?.Invoke(found);
+    yield break;
+}
+
+private IEnumerator EnsureOpenedIfHasBool(GameObject box, string boolName)
+{
+    if (box == null) yield break;
+
+    var fsm = GetFsm(box, "Use") ?? box.GetComponent<PlayMakerFSM>();
+    if (fsm == null)
+    {
+        Log($"EnsureOpened: no FSM on {box.name}");
+        yield break;
+    }
+
+    var b = fsm.FsmVariables.FindFsmBool(boolName);
+    if (b == null)
+        yield break;
+
+    if (b.Value)
+        yield break;
+
+    // New canon: set the variable directly first, then optionally poke the FSM with PROCEED to refresh visuals.
+    b.Value = true;
+    Log($"EnsureOpened: set {box.name}.{boolName}=ON");
+
+    if (!RequireWaitButton.Value || IsWaitButton(fsm))
+    {
+        fsm.SendEvent("PROCEED");
+        yield return WaitSeconds(Mathf.Max(StepWaitSec.Value, 0.2f));
+    }
+    else
+    {
+        Log($"EnsureOpened: SKIP PROCEED on {box.name} state='{fsm.ActiveStateName}'");
+    }
+
+    yield break;
+}
+
+private IEnumerator EnsurePackageStage(GameObject pack, int desiredStage, bool trySendUse)
+{
+    if (pack == null) yield break;
+
+    var fsm = GetFsm(pack, "Use") ?? pack.GetComponent<PlayMakerFSM>();
+    if (fsm == null) yield break;
+
+    var stageInt = fsm.FsmVariables.FindFsmInt("Stage");
+    if (stageInt != null && stageInt.Value != desiredStage)
+    {
+        stageInt.Value = desiredStage;
+        Log($"Package: set Stage={desiredStage}");
+    }
+
+    if (trySendUse)
+    {
+        if (!RequireWaitButton.Value || IsWaitButton(fsm))
+        {
+            fsm.SendEvent("USE");
+            yield return WaitSeconds(Mathf.Max(StepWaitSec.Value, 0.2f));
+        }
+        else
+        {
+            Log($"Package: SKIP USE (need 'Wait button'), state='{fsm.ActiveStateName}'");
+        }
+    }
+
+    yield break;
+}
+
+private IEnumerator EnsurePackageFlags(GameObject pack, bool chargerOn, bool manualOn, bool mouldOn)
+{
+    if (pack == null) yield break;
+
+    var fsm = GetFsm(pack, "Use") ?? pack.GetComponent<PlayMakerFSM>();
+    if (fsm == null) yield break;
+
+    var bCharger = fsm.FsmVariables.FindFsmBool("Charger");
+    var bManual  = fsm.FsmVariables.FindFsmBool("Manual");
+    var bMould   = fsm.FsmVariables.FindFsmBool("Mould");
+
+    if (bCharger != null) bCharger.Value = chargerOn;
+    if (bManual  != null) bManual.Value  = manualOn;
+    if (bMould   != null) bMould.Value   = mouldOn;
+
+    Log($"Package: flags Charger={(bCharger!=null?bCharger.Value.ToString():"<na>")} Manual={(bManual!=null?bManual.Value.ToString():"<na>")} Mould={(bMould!=null?bMould.Value.ToString():"<na>")}");
+    yield break;
+}
+
+private IEnumerator AssembleTray(GameObject tray, GameObject charger, GameObject manual)
         {
             if (tray == null || charger == null || manual == null)
                 yield break;
@@ -322,7 +408,7 @@ namespace FutufonAutoWorker
                 TeleportTo(trigCharger.position, charger);
                 yield return WaitSeconds(0.05f);
                 yield return SendAnyEvent(trigCharger.gameObject, "PROCEED");
-                yield return WaitSeconds(Mathf.Max(SpawnWaitSec.Value, 0.7f));
+                yield return WaitSeconds(SpawnWaitSec.Value);
             }
 
             if (trigManual != null)
@@ -330,7 +416,7 @@ namespace FutufonAutoWorker
                 TeleportTo(trigManual.position, manual);
                 yield return WaitSeconds(0.05f);
                 yield return SendAnyEvent(trigManual.gameObject, "PROCEED");
-                yield return WaitSeconds(Mathf.Max(SpawnWaitSec.Value, 0.7f));
+                yield return WaitSeconds(SpawnWaitSec.Value);
             }
 
             // Give a little time for variables to update
@@ -350,7 +436,7 @@ namespace FutufonAutoWorker
             yield return WaitSeconds(0.05f);
 
             yield return SendAnyEvent(trigTray.gameObject, "PROCEED");
-            yield return WaitSeconds(Mathf.Max(SpawnWaitSec.Value, 0.7f));
+            yield return WaitSeconds(SpawnWaitSec.Value);
         }
 
         private IEnumerator UseFsm(GameObject go, string fsmName, string evt, int times)
@@ -360,7 +446,7 @@ namespace FutufonAutoWorker
 
             for (int i = 0; i < times; i++)
             {
-                yield return ForceWaitInteractable(go, 1.2f);
+                yield return ForceWaitButton(go, 1.0f);
                 var fsm = GetFsm(go, fsmName);
                 if (fsm == null) yield break;
                 fsm.SendEvent(evt);
@@ -371,30 +457,6 @@ namespace FutufonAutoWorker
         // ---------------------------
         // Interaction helpers (Wait button)
         // ---------------------------
-
-        private void AimCameraAt(GameObject target, float pitchDownDeg = 25f)
-        {
-            if (target == null) return;
-
-            var player = PlayerGO();
-            if (player == null) return;
-
-            // Yaw: повернуть игрока по горизонтали на цель
-            Vector3 dir = target.transform.position - player.transform.position;
-            dir.y = 0f;
-            if (dir.sqrMagnitude > 0.001f)
-                player.transform.rotation = Quaternion.LookRotation(dir.normalized, Vector3.up);
-
-            // Pitch: опустить камеру вниз
-            var cam = Camera.main != null ? Camera.main.transform : null;
-            if (cam != null)
-            {
-                var e = cam.localEulerAngles;
-                // Unity хранит углы 0..360, поэтому делаем "вниз" через 360 - pitch
-                e.x = 360f - Mathf.Clamp(pitchDownDeg, 0f, 80f);
-                cam.localEulerAngles = e;
-            }
-        }
 
         private IEnumerator ForceWaitButton(GameObject target, float maxSec)
         {
@@ -421,35 +483,6 @@ namespace FutufonAutoWorker
             }
         }
 
-        private IEnumerator ForceWaitInteractable(GameObject target, float maxSec)
-        {
-            if (target == null)
-                yield break;
-
-            var fsm = GetFsm(target, "Use") ?? target.GetComponent<PlayMakerFSM>();
-            if (fsm == null)
-                yield break;
-
-            float t0 = Time.time;
-            while (Time.time - t0 < maxSec)
-            {
-                AimAt(target);
-                yield return null;
-
-                string st = (fsm.ActiveStateName ?? "").Trim();
-
-                // коробки часто в "Wait player", Pick* в "Wait button"
-                if (string.Equals(st, "Wait button", StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals(st, "Wait player", StringComparison.OrdinalIgnoreCase))
-                    yield break;
-
-                yield return WaitSeconds(0.03f);
-            }
-
-            Log($"WARN: can't reach Wait state for {target.name}, state={fsm.ActiveStateName}");
-        }
-
-
         private IEnumerator SendUseEvent(GameObject target, string evt)
         {
             if (target == null) yield break;
@@ -465,41 +498,12 @@ namespace FutufonAutoWorker
         {
             if (target == null) yield break;
 
-            var fsms = target.GetComponents<PlayMakerFSM>();
-            if (fsms == null || fsms.Length == 0)
-            {
-                Log($"DBG SendAnyEvent: target={target.name} NO_FSM evt={evt}");
-                yield break;
-            }
-
-            PlayMakerFSM fsm = null;
-
-            // 1) Если есть FSM с именем, похожим на имя объекта - берем его
-            // (часто удобно для TriggerCharger/TriggerManual)
-            fsm = fsms.FirstOrDefault(x =>
-                !string.IsNullOrEmpty(x.FsmName) &&
-                x.FsmName.IndexOf(target.name, StringComparison.OrdinalIgnoreCase) >= 0);
-
-            // 2) Если есть Use - берем его
-            if (fsm == null)
-                fsm = fsms.FirstOrDefault(x =>
-                    string.Equals(x.FsmName, "Use", StringComparison.OrdinalIgnoreCase));
-
-            // 3) Иначе берем первый
-            if (fsm == null)
-                fsm = fsms[0];
-
-            // Логи: какой FSM выбрали и какие вообще есть
-            if (DebugLog.Value)
-            {
-                string all = string.Join(", ", fsms.Select(x => $"{x.FsmName}:{x.ActiveStateName}").ToArray());
-                Logger.LogInfo($"[FutufonAutoWorker] DBG SendAnyEvent: target={target.name} evt={evt} chosen={fsm.FsmName} state={fsm.ActiveStateName} all=[{all}]");
-            }
+            var fsm = target.GetComponent<PlayMakerFSM>();
+            if (fsm == null) yield break;
 
             fsm.SendEvent(evt);
             yield return null;
         }
-
 
         private void AimAt(GameObject target)
         {
@@ -554,22 +558,17 @@ namespace FutufonAutoWorker
 
             Vector3 p = target.transform.position;
 
-            Vector3 forward = target.transform.forward;
-            if (forward.sqrMagnitude < 0.01f)
-                forward = player.transform.forward;
+            // Place player slightly back from the target, at roughly same height
+            Vector3 back = -target.transform.forward;
+            if (back.sqrMagnitude < 0.01f)
+                back = -player.transform.forward;
 
-            Vector3 right = target.transform.right;
-            if (right.sqrMagnitude < 0.01f)
-                right = player.transform.right;
+            p += back.normalized * 0.9f;
+            p.y = player.transform.position.y;
 
-            // Телепортируемся не "внутрь" объекта, а немного перед ним и чуть сбоку
-            Vector3 dst = p - forward.normalized * 0.75f + right.normalized * 0.15f;
+            player.transform.position = p;
 
-            // По высоте оставляем уровень игрока, чтобы не проваливаться/не подпрыгивать
-            dst.y = player.transform.position.y;
-
-            player.transform.position = dst;
-
+            // Try to stop rigidbody drift if present
             var rb = player.GetComponent<Rigidbody>();
             if (rb != null)
             {
@@ -577,7 +576,6 @@ namespace FutufonAutoWorker
                 rb.angularVelocity = Vector3.zero;
             }
         }
-
 
         private void TeleportToAnchor(GameObject go, int slot)
         {
@@ -595,7 +593,7 @@ namespace FutufonAutoWorker
             int col = slot % 4;
 
             Vector3 pos = anchor + right * (col * step) + fwd * (row * step);
-            pos.y = anchor.y + 0.35f;
+            pos.y = anchor.y + 0.05f;
 
             TeleportTo(pos, go);
         }
@@ -660,6 +658,8 @@ namespace FutufonAutoWorker
                 if (go == null) continue;
                 if (!go.activeInHierarchy) continue;
                 if (!string.Equals(go.name, exactName, StringComparison.Ordinal)) continue;
+
+                if (IsUnderSpawnerOrPick(go)) continue;
 
                 float d = (go.transform.position - near).sqrMagnitude;
                 if (d <= radius * radius && d < best)
@@ -742,6 +742,7 @@ namespace FutufonAutoWorker
             return new WaitForSeconds(Mathf.Max(0.01f, sec));
         }
 
+        
         private IEnumerator RunSafe(IEnumerator inner, float onErrorWaitSec = 1.0f)
         {
             if (inner == null)
@@ -775,54 +776,7 @@ namespace FutufonAutoWorker
             }
         }
 
-        private static string Fmt(Vector3 v) => $"{v.x:F2},{v.y:F2},{v.z:F2}";
-
-        private void LogCtx(string tag, GameObject target)
-        {
-            if (!DebugLog.Value) return;
-
-            var player = PlayerGO();
-            var cam = Camera.main;
-
-            Vector3 ppos = player != null ? player.transform.position : Vector3.zero;
-            Vector3 tpos = target != null ? target.transform.position : Vector3.zero;
-
-            float dist = (player != null && target != null) ? Vector3.Distance(ppos, tpos) : -1f;
-
-            // Берем Use FSM если есть, иначе любой FSM на объекте
-            var fsm = GetFsm(target, "Use") ?? (target != null ? target.GetComponent<PlayMakerFSM>() : null);
-            string st = fsm != null ? (fsm.ActiveStateName ?? "null") : "no_fsm";
-            string fsmName = fsm != null ? (fsm.FsmName ?? "null") : "no_fsm";
-
-            string camPos = cam != null ? Fmt(cam.transform.position) : "no_cam";
-
-            Logger.LogInfo($"[FutufonAutoWorker] DBG {tag}: target={target?.name} tpos={Fmt(tpos)} player={Fmt(ppos)} dist={dist:F2} cam={camPos} fsm={fsmName} state={st}");
-        }
-
-        private void DebugNameStats(string exactName)
-        {
-            if (!DebugLog.Value) return;
-
-            int total = 0, active = 0, underPick = 0;
-
-            foreach (var go in Resources.FindObjectsOfTypeAll<GameObject>())
-            {
-                if (go == null) continue;
-                if (!string.Equals(go.name, exactName, StringComparison.Ordinal)) continue;
-
-                total++;
-                if (go.activeInHierarchy)
-                {
-                    active++;
-                    if (IsUnderSpawnerOrPick(go)) underPick++;
-                }
-            }
-
-            Logger.LogInfo($"[FutufonAutoWorker] DBG name={exactName} total={total} active={active} underPickOrSpawner={underPick}");
-        }
-
-
-        private void Log(string msg)
+private void Log(string msg)
         {
             if (DebugLog.Value)
                 Logger.LogInfo("[FutufonAutoWorker] " + msg);
