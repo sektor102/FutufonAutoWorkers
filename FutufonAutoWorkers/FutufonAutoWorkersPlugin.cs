@@ -4,175 +4,125 @@ using BepInEx;
 using HutongGames.PlayMaker;
 using UnityEngine;
 
-[BepInPlugin("com.futufon.autoworker", "Futufon AutoWorker", "1.1.2")]
+[BepInPlugin("com.futufon.autoworker", "Futufon AutoWorker", "1.1.3")]
 public class FutufonAutoWorkersPlugin : BaseUnityPlugin
 {
-    private const string BUILD = "1112-A";
     private bool _busy;
 
     private void Awake()
     {
-        Logger.LogInfo("[AutoWorker] BUILD=" + BUILD);
+        Logger.LogInfo("[AutoWorker] Loaded");
         Logger.LogInfo("[AutoWorker] DLL=" + System.Reflection.Assembly.GetExecutingAssembly().Location);
     }
 
     private void Update()
     {
         if (Input.GetKeyDown(KeyCode.F9) && !_busy)
-            StartCoroutine(TakeChargerOnce());
+            StartCoroutine(TakeOne());
 
         if (Input.GetKeyDown(KeyCode.F10))
             DumpNearestBox();
     }
 
-    private IEnumerator TakeChargerOnce()
+    private IEnumerator TakeOne()
     {
         _busy = true;
 
-        GameObject box;
-        PlayMakerFSM fsm;
-        FindNearestChargersBoxUseFsm(out box, out fsm);
-
-        if (box == null || fsm == null)
+        try
         {
-            Logger.LogWarning("[AutoWorker] No usable chargers box found");
+            GameObject box;
+            PlayMakerFSM fsm;
+            FindNearestChargersBoxUseFsm(out box, out fsm);
+
+            if (box == null || fsm == null)
+            {
+                Logger.LogWarning("[AutoWorker] No usable chargers box found");
+                yield break;
+            }
+
+            int itemsBefore = GetFsmInt(fsm, "Items");
+            bool openBefore = GetFsmBool(fsm, "Open");
+
+            Logger.LogInfo("[AutoWorker] Target=" + box.name +
+                           " dist=" + Vector3.Distance(GetPlayerPos(), box.transform.position).ToString("0.00") +
+                           " state=" + fsm.ActiveStateName +
+                           " items=" + itemsBefore +
+                           " open=" + openBefore);
+
+            // 1) ƒоводим до Wait button (это значит реальный фокус/луч/дистанци€)
+            bool gotWaitButton = false;
+            yield return Run(EnsureWaitButton(box, fsm, 12, 1.05f, r => gotWaitButton = r));
+
+            Logger.LogInfo("[AutoWorker] FocusResult state=" + fsm.ActiveStateName + " gotWaitButton=" + gotWaitButton);
+
+            if (!gotWaitButton)
+            {
+                Logger.LogWarning("[AutoWorker] Still not Wait button - skip");
+                yield break;
+            }
+
+            // 2) ≈сли коробка закрыта - сначала открываем
+            bool openNow = GetFsmBool(fsm, "Open");
+            if (!openNow)
+            {
+                Logger.LogInfo("[AutoWorker] Box closed - send PROCEED to open");
+                yield return Run(SendProceedAndWait(fsm));
+
+                // ждЄм, чтобы Open реально обновилс€
+                yield return null;
+                yield return null;
+
+                bool openAfter = GetFsmBool(fsm, "Open");
+                Logger.LogInfo("[AutoWorker] Open after=" + openAfter + " state=" + fsm.ActiveStateName);
+
+                // если так и не открылось - это уже сигнал, что фокус не удержалс€
+                if (!openAfter)
+                {
+                    Logger.LogWarning("[AutoWorker] Open still false - try refocus once");
+                    gotWaitButton = false;
+                    yield return Run(EnsureWaitButton(box, fsm, 8, 1.05f, r => gotWaitButton = r));
+                    if (gotWaitButton)
+                    {
+                        Logger.LogInfo("[AutoWorker] Retry open PROCEED");
+                        yield return Run(SendProceedAndWait(fsm));
+                        yield return null;
+                        yield return null;
+                        Logger.LogInfo("[AutoWorker] Open after retry=" + GetFsmBool(fsm, "Open"));
+                    }
+                }
+            }
+
+            // 3) “еперь берЄм зар€дку
+            int beforeTake = GetFsmInt(fsm, "Items");
+            Logger.LogInfo("[AutoWorker] Take charger - items before=" + beforeTake);
+
+            yield return Run(SendProceedAndWait(fsm));
+
+            yield return null;
+            yield return null;
+
+            int afterTake = GetFsmInt(fsm, "Items");
+            Logger.LogInfo("[AutoWorker] Take result - items " + beforeTake + " -> " + afterTake + " state=" + fsm.ActiveStateName);
+
+            if (beforeTake != -1 && afterTake != -1 && afterTake >= beforeTake)
+                Logger.LogWarning("[AutoWorker] PROCEED had no effect (focus lost or wrong camera/raycast)");
+        }
+        finally
+        {
             _busy = false;
-            yield break;
-        }
-
-        Logger.LogInfo("[AutoWorker] Target=" + box.name + " state=" + fsm.ActiveStateName + " items=" + GetFsmInt(fsm, "Items"));
-
-        // 1) ѕытаемс€ принудительно перевести в Wait button (без взгл€да)
-        if (fsm.ActiveStateName != "Wait button")
-        {
-            Logger.LogInfo("[AutoWorker] FORCE: SetState(Wait button) try");
-            ForceSetState(fsm, "Wait button");
-            yield return null;
-            yield return null;
-            Logger.LogInfo("[AutoWorker] FORCE: after state=" + fsm.ActiveStateName);
-        }
-
-        // 2) ≈сли всЄ равно не Wait button - тогда уже пробуем "донаведение" камерой
-        if (fsm.ActiveStateName != "Wait button")
-        {
-            Logger.LogInfo("[AutoWorker] ENTER TryMakeWaitButton");
-            yield return Run(TryMakeWaitButton(fsm, box));
-        }
-
-        Logger.LogInfo("[AutoWorker] Ready state=" + fsm.ActiveStateName + " items=" + GetFsmInt(fsm, "Items"));
-
-        if (fsm.ActiveStateName == "Wait button")
-        {
-            Logger.LogInfo("[AutoWorker] ENTER SendProceedSmart");
-            yield return Run(SendProceedSmart(fsm));
-        }
-        else
-        {
-            Logger.LogWarning("[AutoWorker] Still not Wait button, skip PROCEED");
-        }
-
-        Logger.LogInfo("[AutoWorker] After state=" + fsm.ActiveStateName + " items=" + GetFsmInt(fsm, "Items"));
-        _busy = false;
-    }
-
-    private void ForceSetState(PlayMakerFSM pmFsm, string stateName)
-    {
-        try
-        {
-            if (pmFsm == null) return;
-
-            var f = pmFsm.Fsm;
-            if (f == null) return;
-
-            var t = f.GetType();
-
-            // 1) пробуем SetState(string)
-            var m = t.GetMethod("SetState", new[] { typeof(string) });
-            if (m != null)
-            {
-                Logger.LogInfo("[AutoWorker] FORCE: SetState(string) found");
-                m.Invoke(f, new object[] { stateName });
-                return;
-            }
-
-            // 2) пробуем ChangeState(string)
-            m = t.GetMethod("ChangeState", new[] { typeof(string) });
-            if (m != null)
-            {
-                Logger.LogInfo("[AutoWorker] FORCE: ChangeState(string) found");
-                m.Invoke(f, new object[] { stateName });
-                return;
-            }
-
-            // 3) пробуем ChangeState(FsmState) или SetState(FsmState)
-            var st = f.GetState(stateName);
-            if (st != null)
-            {
-                m = t.GetMethod("ChangeState", new[] { typeof(HutongGames.PlayMaker.FsmState) });
-                if (m != null)
-                {
-                    Logger.LogInfo("[AutoWorker] FORCE: ChangeState(FsmState) found");
-                    m.Invoke(f, new object[] { st });
-                    return;
-                }
-
-                m = t.GetMethod("SetState", new[] { typeof(HutongGames.PlayMaker.FsmState) });
-                if (m != null)
-                {
-                    Logger.LogInfo("[AutoWorker] FORCE: SetState(FsmState) found");
-                    m.Invoke(f, new object[] { st });
-                    return;
-                }
-            }
-
-            Logger.LogWarning("[AutoWorker] FORCE: no SetState/ChangeState method on this PlayMaker build");
-        }
-        catch (Exception e)
-        {
-            Logger.LogWarning("[AutoWorker] ForceSetState failed: " + e);
         }
     }
 
+    // ----------------- Focus: делаем реально Wait button -----------------
 
-    private IEnumerator SendProceedSmart(PlayMakerFSM f)
+    private IEnumerator EnsureWaitButton(GameObject targetGo, PlayMakerFSM fsm, int attempts, float standDist, Action<bool> setResult)
     {
-        int before = GetFsmInt(f, "Items");
-        Logger.LogInfo("[AutoWorker] SEND: SendEvent(PROCEED)");
+        setResult(false);
 
-        try { f.SendEvent("PROCEED"); }
-        catch (Exception e) { Logger.LogWarning("[AutoWorker] SendEvent failed: " + e); }
-
-        yield return null;
-        yield return null;
-
-        int after1 = GetFsmInt(f, "Items");
-        Logger.LogInfo("[AutoWorker] After SendEvent items=" + before + "->" + after1);
-
-        // fallback
-        if (before != -1 && after1 != -1 && after1 < before)
-            yield break;
-
-        Logger.LogInfo("[AutoWorker] SEND: Fsm.Event(PROCEED) fallback");
-        try
-        {
-            if (f != null && f.Fsm != null)
-                f.Fsm.Event(HutongGames.PlayMaker.FsmEvent.GetFsmEvent("PROCEED"));
-        }
-        catch (Exception e) { Logger.LogWarning("[AutoWorker] Fsm.Event failed: " + e); }
-
-        yield return null;
-        yield return null;
-
-        int after2 = GetFsmInt(f, "Items");
-        Logger.LogInfo("[AutoWorker] After Fsm.Event items=" + before + "->" + after2);
-    }
-
-    private IEnumerator TryMakeWaitButton(PlayMakerFSM fsm, GameObject targetGo)
-    {
         Transform player = FindPlayer();
         if (player == null)
         {
-            Logger.LogWarning("[AutoWorker] Player not found");
+            Logger.LogWarning("[AutoWorker] PLAYER not found");
             yield break;
         }
 
@@ -186,31 +136,116 @@ public class FutufonAutoWorkersPlugin : BaseUnityPlugin
         Collider col = targetGo.GetComponent<Collider>();
         Vector3 center = (col != null) ? col.bounds.center : targetGo.transform.position;
 
-        float dist = 1.05f;
+        float dist = standDist;
 
-        for (int i = 0; i < 10; i++)
+        for (int i = 0; i < attempts; i++)
         {
+            // телепорт р€дом
             TeleportNear(player, center, targetGo.transform, dist);
+
+            // наводим камеру
             AimCameraAt(cam, center);
 
+            // даЄм пару кадров чтобы MousePickEvent/луч отработал
             yield return null;
             yield return null;
 
-            Logger.LogInfo("[AutoWorker] AimTry " + (i + 1) + " state=" + fsm.ActiveStateName);
+            bool hitOk = RayHitsTarget(cam, col, targetGo);
+            string st = fsm.ActiveStateName;
 
-            if (fsm.ActiveStateName == "Wait button")
-                yield break;
+            Logger.LogInfo("[AutoWorker] AimTry " + (i + 1) + "/" + attempts + " hitOk=" + hitOk + " state=" + st);
+
+            // важно: нам нужно именно Wait button
+            if (st == "Wait button" && hitOk)
+            {
+                // стабилизируем 2 кадра подр€д
+                yield return null;
+                yield return null;
+
+                if (fsm.ActiveStateName == "Wait button")
+                {
+                    setResult(true);
+                    yield break;
+                }
+            }
 
             dist = Mathf.Clamp(dist + 0.12f, 0.8f, 1.6f);
         }
 
-        Logger.LogWarning("[AutoWorker] Could not reach Wait button (still " + fsm.ActiveStateName + ")");
+        Logger.LogWarning("[AutoWorker] Could not reach Wait button. state=" + fsm.ActiveStateName);
     }
 
-    private IEnumerator Run(IEnumerator e)
+    private IEnumerator SendProceedAndWait(PlayMakerFSM fsm)
     {
-        while (e != null && e.MoveNext())
-            yield return e.Current;
+        int before = GetFsmInt(fsm, "Items");
+        Logger.LogInfo("[AutoWorker] SEND PROCEED state=" + fsm.ActiveStateName + " items=" + before);
+
+        // 1) обычный SendEvent
+        try { fsm.SendEvent("PROCEED"); }
+        catch (Exception e) { Logger.LogWarning("[AutoWorker] SendEvent failed: " + e); }
+
+        yield return null;
+        yield return null;
+
+        int after1 = GetFsmInt(fsm, "Items");
+        Logger.LogInfo("[AutoWorker] After SendEvent state=" + fsm.ActiveStateName + " items=" + before + "->" + after1);
+
+        // 2) fallback через Fsm.Event
+        if (before != -1 && after1 != -1 && after1 < before)
+            yield break;
+
+        try
+        {
+            if (fsm != null && fsm.Fsm != null)
+                fsm.Fsm.Event(FsmEvent.GetFsmEvent("PROCEED"));
+        }
+        catch (Exception e) { Logger.LogWarning("[AutoWorker] Fsm.Event failed: " + e); }
+
+        yield return null;
+        yield return null;
+
+        int after2 = GetFsmInt(fsm, "Items");
+        Logger.LogInfo("[AutoWorker] After Fsm.Event state=" + fsm.ActiveStateName + " items=" + before + "->" + after2);
+    }
+
+    // ----------------- Find box + utils -----------------
+
+    private void FindNearestChargersBoxUseFsm(out GameObject box, out PlayMakerFSM fsm)
+    {
+        box = null;
+        fsm = null;
+
+        Transform player = FindPlayer();
+        Vector3 p = (player != null) ? player.position : Vector3.zero;
+
+        UnityEngine.Object[] all = UnityEngine.Object.FindObjectsOfType(typeof(PlayMakerFSM));
+        if (all == null) return;
+
+        float best = float.MaxValue;
+
+        for (int i = 0; i < all.Length; i++)
+        {
+            PlayMakerFSM pm = all[i] as PlayMakerFSM;
+            if (pm == null) continue;
+            if (!pm.enabled) continue;
+
+            if (pm.FsmName != "Use") continue;
+
+            GameObject go = pm.gameObject;
+            if (go == null) continue;
+
+            string n = go.name;
+            if (n == null) continue;
+            if (n.IndexOf("chargers box", StringComparison.OrdinalIgnoreCase) < 0) continue;
+
+            float d = (player != null) ? Vector3.Distance(p, go.transform.position) : 0f;
+            if (d < best)
+            {
+                best = d;
+                box = go;
+                fsm = pm;
+            }
+        }
     }
 
     private void DumpNearestBox()
@@ -226,79 +261,60 @@ public class FutufonAutoWorkersPlugin : BaseUnityPlugin
         }
 
         Logger.LogInfo("[AutoWorker] Dump box=" + box.name);
+        Logger.LogInfo("[AutoWorker] FSM name=" + fsm.FsmName + " state=" + fsm.ActiveStateName +
+                       " items=" + GetFsmInt(fsm, "Items") + " open=" + GetFsmBool(fsm, "Open"));
 
-        PlayMakerFSM[] fsms = box.GetComponents<PlayMakerFSM>();
-        for (int i = 0; i < fsms.Length; i++)
+        if (fsm.Fsm != null && fsm.Fsm.States != null)
         {
-            PlayMakerFSM f = fsms[i];
-            if (f == null) continue;
+            for (int i = 0; i < fsm.Fsm.States.Length; i++)
+            {
+                var st = fsm.Fsm.States[i];
+                if (st == null || st.Transitions == null) continue;
 
-            Logger.LogInfo("[AutoWorker] FSM name=" + f.FsmName + " state=" + f.ActiveStateName + " items=" + GetFsmInt(f, "Items"));
-            DumpStateTransitions(f, "Wait button");
+                for (int t = 0; t < st.Transitions.Length; t++)
+                {
+                    var tr = st.Transitions[t];
+                    if (tr == null) continue;
+                    if (st.Name == "Wait button")
+                        Logger.LogInfo("[AutoWorker]   " + st.Name + " --[" + tr.EventName + "]-> " + tr.ToState);
+                }
+            }
         }
     }
 
-    private void FindNearestChargersBoxUseFsm(out GameObject box, out PlayMakerFSM fsm)
+    private IEnumerator Run(IEnumerator e)
     {
-        box = null;
-        fsm = null;
-
-        Transform player = FindPlayer();
-        if (player == null) return;
-
-        PlayMakerFSM[] all = FindObjectsOfType<PlayMakerFSM>();
-        PlayMakerFSM best = null;
-        float bestDist = float.MaxValue;
-
-        for (int i = 0; i < all.Length; i++)
-        {
-            PlayMakerFSM x = all[i];
-            if (x == null) continue;
-            if (x.FsmName != "Use") continue;
-
-            string n = x.gameObject.name;
-            if (n == null) continue;
-            if (n.IndexOf("chargers box") < 0) continue;
-
-            string st = x.ActiveStateName;
-            if (st != "Wait player" && st != "Wait button") continue;
-
-            float d = Vector3.Distance(player.position, x.transform.position);
-            if (d < bestDist)
-            {
-                bestDist = d;
-                best = x;
-            }
-        }
-
-        if (best == null) return;
-        box = best.gameObject;
-        fsm = best;
+        while (e != null && e.MoveNext())
+            yield return e.Current;
     }
 
     private Transform FindPlayer()
     {
-        GameObject p = GameObject.Find("PLAYER");
-        if (p != null) return p.transform;
+        GameObject go = GameObject.Find("PLAYER");
+        if (go != null) return go.transform;
 
-        GameObject byTag = GameObject.FindWithTag("Player");
-        if (byTag != null) return byTag.transform;
+        go = GameObject.FindWithTag("Player");
+        return (go != null) ? go.transform : null;
+    }
 
-        return null;
+    private Vector3 GetPlayerPos()
+    {
+        Transform p = FindPlayer();
+        return (p != null) ? p.position : Vector3.zero;
     }
 
     private Camera FindPlayerCamera(Transform player)
     {
-        if (player != null)
+        Camera[] cams = player.GetComponentsInChildren<Camera>(true);
+        for (int i = 0; i < cams.Length; i++)
         {
-            Camera[] cams = player.GetComponentsInChildren<Camera>(true);
-            for (int i = 0; i < cams.Length; i++)
-            {
-                Camera c = cams[i];
-                if (c != null && c.enabled && c.gameObject.activeInHierarchy)
-                    return c;
-            }
+            Camera c = cams[i];
+            if (c == null) continue;
+            if (!c.enabled) continue;
+            if (!c.gameObject.activeInHierarchy) continue;
+            return c;
         }
+
         return Camera.main;
     }
 
@@ -315,22 +331,17 @@ public class FutufonAutoWorkersPlugin : BaseUnityPlugin
         return -1;
     }
 
-    private void DumpStateTransitions(PlayMakerFSM fsm, string stateName)
+    private bool GetFsmBool(PlayMakerFSM fsm, string name)
     {
         try
         {
-            if (fsm == null || fsm.Fsm == null) return;
-            var st = fsm.Fsm.GetState(stateName);
-            if (st == null || st.Transitions == null) return;
-
-            for (int i = 0; i < st.Transitions.Length; i++)
-            {
-                var tr = st.Transitions[i];
-                if (tr == null) continue;
-                Logger.LogInfo("[AutoWorker]   " + stateName + " --[" + tr.EventName + "]-> " + tr.ToState);
-            }
+            var b = fsm.FsmVariables.BoolVariables;
+            for (int i = 0; i < b.Length; i++)
+                if (b[i] != null && b[i].Name == name)
+                    return b[i].Value;
         }
         catch { }
+        return false;
     }
 
     private void TeleportNear(Transform player, Vector3 targetCenter, Transform targetTf, float dist)
@@ -359,6 +370,21 @@ public class FutufonAutoWorkersPlugin : BaseUnityPlugin
         Transform t = cam.transform;
         Vector3 dir = (targetCenter - t.position);
         if (dir.sqrMagnitude < 0.0001f) return;
+
         t.rotation = Quaternion.LookRotation(dir.normalized, Vector3.up);
+    }
+
+    private bool RayHitsTarget(Camera cam, Collider col, GameObject go)
+    {
+        Ray ray = new Ray(cam.transform.position, cam.transform.forward);
+
+        RaycastHit hit;
+        if (Physics.Raycast(ray, out hit, 3.0f))
+        {
+            if (col != null && hit.collider == col) return true;
+            if (hit.collider != null && hit.collider.gameObject == go) return true;
+            if (hit.collider != null && hit.collider.transform.IsChildOf(go.transform)) return true;
+        }
+        return false;
     }
 }
