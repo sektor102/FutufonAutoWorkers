@@ -4,12 +4,13 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using UnityEngine;
 using HutongGames.PlayMaker;
 
 namespace FutufonAutoWorker
 {
-    [BepInPlugin("com.futufon.autoworker", "Futufon AutoWorker (autofocus10)", "0.4.2")]
+    [BepInPlugin("com.futufon.autoworker", "Futufon AutoWorker (autofocus10)", "0.4.6")]
     public class Plugin : BaseUnityPlugin
     {
         private bool _busy;
@@ -56,7 +57,7 @@ namespace FutufonAutoWorker
             TeleportYOffset = Config.Bind("Auto", "TeleportYOffset", 0.02f, "Small Y offset when teleporting to triggers");
             DebugLog = Config.Bind("Debug", "DebugLog", true, "Verbose logs");
 
-            Log("Loaded autofocus10. F8 toggle automation, F5 debug PROCEED, F7 debug package, F9 dump FSMs.");
+            Log("Loaded autofocus10 v0.4.6 with reflection for SetState.");
         }
 
         private void Update()
@@ -252,14 +253,6 @@ namespace FutufonAutoWorker
                 yield break;
             }
 
-            string activeState = GetFsmActive(crate, "Use");
-            if (!string.Equals(activeState, "Wait Button", StringComparison.OrdinalIgnoreCase))
-            {
-                Log($"SpawnBoxFromCrate: {boxName} not in Wait Button (actual: {activeState}), skipping spawn");
-                setFound(null);
-                yield break;
-            }
-
             GameObject found = FindSpawnedNear(boxName, crate);
             if (found != null)
             {
@@ -267,8 +260,42 @@ namespace FutufonAutoWorker
                 yield break;
             }
 
+            PlayMakerFSM fsm = GetFsm(crate, "Use");
+            if (fsm == null)
+            {
+                Log($"SpawnBoxFromCrate: {boxName} no Use FSM");
+                setFound(null);
+                yield break;
+            }
+
             for (int attempt = 1; attempt <= tries; attempt++)
             {
+                string state = fsm.ActiveStateName;
+                if (!string.Equals(state, "Wait button", StringComparison.OrdinalIgnoreCase))
+                {
+                    Log($"SpawnBoxFromCrate: {boxName} not in Wait button (state={state}), forcing state via reflection");
+                    var setStateMethod = typeof(Fsm).GetMethod("SetState", BindingFlags.Instance | BindingFlags.NonPublic);
+                    if (setStateMethod != null)
+                    {
+                        setStateMethod.Invoke(fsm.Fsm, new object[] { "Wait button" });
+                        yield return new WaitForEndOfFrame();
+                        yield return new WaitForEndOfFrame();
+                    }
+                    else
+                    {
+                        Log($"SpawnBoxFromCrate: {boxName} failed to find SetState method");
+                        continue;
+                    }
+
+                    state = fsm.ActiveStateName;
+                    if (!string.Equals(state, "Wait button", StringComparison.OrdinalIgnoreCase))
+                    {
+                        Log($"SpawnBoxFromCrate: {boxName} failed to force Wait button (now {state}), skipping attempt {attempt}");
+                        continue;
+                    }
+                }
+
+                Log($"SpawnBoxFromCrate: {boxName} state OK, sending PROCEED");
                 Proceed(crate);
                 yield return new WaitForSeconds(SpawnWaitSec.Value);
 
@@ -303,14 +330,39 @@ namespace FutufonAutoWorker
             bool isOpen;
             if (TryGetBoolVar(box, "open", out isOpen) && !isOpen)
             {
-                // Check state
-                string activeState = GetFsmActive(box, "Use");
-                if (!string.Equals(activeState, "Wait Button", StringComparison.OrdinalIgnoreCase))
+                PlayMakerFSM fsm = GetFsm(box, "Use");
+                if (fsm == null)
                 {
-                    Log($"OpenBoxIfNeeded: {boxName} not in Wait Button (actual: {activeState})");
+                    Log($"OpenBoxIfNeeded: {boxName} no Use FSM");
                     yield break;
                 }
 
+                string state = fsm.ActiveStateName;
+                if (!string.Equals(state, "Wait button", StringComparison.OrdinalIgnoreCase))
+                {
+                    Log($"OpenBoxIfNeeded: {boxName} not in Wait button (state={state}), forcing state via reflection");
+                    var setStateMethod = typeof(Fsm).GetMethod("SetState", BindingFlags.Instance | BindingFlags.NonPublic);
+                    if (setStateMethod != null)
+                    {
+                        setStateMethod.Invoke(fsm.Fsm, new object[] { "Wait button" });
+                        yield return new WaitForEndOfFrame();
+                        yield return new WaitForEndOfFrame();
+                    }
+                    else
+                    {
+                        Log($"OpenBoxIfNeeded: {boxName} failed to find SetState method");
+                        yield break;
+                    }
+
+                    state = fsm.ActiveStateName;
+                    if (!string.Equals(state, "Wait button", StringComparison.OrdinalIgnoreCase))
+                    {
+                        Log($"OpenBoxIfNeeded: {boxName} failed to force Wait button (now {state})");
+                        yield break;
+                    }
+                }
+
+                Log($"OpenBoxIfNeeded: {boxName} state OK, sending PROCEED");
                 Proceed(box);
                 yield return WaitForBool(box, "open", true, SpawnWaitSec.Value * 2);
             }
@@ -335,15 +387,6 @@ namespace FutufonAutoWorker
                 yield break;
             }
 
-            // Check state
-            string activeState = GetFsmActive(box, "Use");
-            if (!string.Equals(activeState, "Wait Button", StringComparison.OrdinalIgnoreCase))
-            {
-                Log($"SpawnItemFromBox: {itemName} not in Wait Button (actual: {activeState})");
-                setFound(null);
-                yield break;
-            }
-
             GameObject found = FindSpawnedNear(itemName, box);
             if (found != null)
             {
@@ -351,8 +394,42 @@ namespace FutufonAutoWorker
                 yield break;
             }
 
+            PlayMakerFSM fsm = GetFsm(box, "Use");
+            if (fsm == null)
+            {
+                Log($"SpawnItemFromBox: {itemName} no Use FSM");
+                setFound(null);
+                yield break;
+            }
+
             for (int attempt = 1; attempt <= tries; attempt++)
             {
+                string state = fsm.ActiveStateName;
+                if (!string.Equals(state, "Wait button", StringComparison.OrdinalIgnoreCase))
+                {
+                    Log($"SpawnItemFromBox: {itemName} not in Wait button (state={state}), forcing state via reflection");
+                    var setStateMethod = typeof(Fsm).GetMethod("SetState", BindingFlags.Instance | BindingFlags.NonPublic);
+                    if (setStateMethod != null)
+                    {
+                        setStateMethod.Invoke(fsm.Fsm, new object[] { "Wait button" });
+                        yield return new WaitForEndOfFrame();
+                        yield return new WaitForEndOfFrame();
+                    }
+                    else
+                    {
+                        Log($"SpawnItemFromBox: {itemName} failed to find SetState method");
+                        continue;
+                    }
+
+                    state = fsm.ActiveStateName;
+                    if (!string.Equals(state, "Wait button", StringComparison.OrdinalIgnoreCase))
+                    {
+                        Log($"SpawnItemFromBox: {itemName} failed to force Wait button (now {state}), skipping attempt {attempt}");
+                        continue;
+                    }
+                }
+
+                Log($"SpawnItemFromBox: {itemName} state OK, sending PROCEED");
                 Proceed(box);
                 yield return new WaitForSeconds(SpawnWaitSec.Value);
 
