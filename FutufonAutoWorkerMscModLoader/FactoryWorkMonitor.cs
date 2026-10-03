@@ -16,6 +16,8 @@ namespace FutufonAutoWorkerMscModLoader
         private string _lastRecord;
         internal WorkCheckState State { get; private set; }
         internal string Status { get; private set; }
+        internal bool AtWork { get; private set; }
+        internal float? IdleMinutes { get; private set; }
 
         internal FactoryWorkMonitor(Action<string> log)
         {
@@ -35,6 +37,8 @@ namespace FutufonAutoWorkerMscModLoader
             var idle = _playerData == null ? null : _playerData.FsmVariables.FindFsmFloat("SlackMinutesAllTime");
             bool increasing = idle != null && _previousIdle.HasValue && idle.Value > _previousIdle.Value + 0.0001f;
             bool clockedIn = atWork != null && atWork.Value;
+            AtWork = clockedIn;
+            IdleMinutes = idle == null ? (float?)null : idle.Value;
             string nativeState = active ? _logic.ActiveStateName : "unavailable";
             State = WorkCheckStatus.Read(active && atWork != null, clockedIn, nativeState, increasing);
             Status = WorkCheckStatus.Text(State);

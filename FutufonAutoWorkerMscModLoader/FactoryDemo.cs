@@ -11,7 +11,12 @@ namespace FutufonAutoWorkerMscModLoader
     {
         internal const int BatchSize = 44;
         private readonly Action<string> _log;
-        private readonly Action<string> _status;
+        private readonly Action<WorkerPhase, int> _status;
+        internal readonly AutomationOptions Options;
+        internal BatchProgress Progress { get; private set; }
+        internal bool CanResume { get { return Progress != null && !Progress.Complete && !_failed; } }
+        internal bool WaitingForPlayer { get; private set; }
+        private bool _failed, _waitingDelivery;
         private readonly Func<float> _paceSeconds;
         private readonly List<HeldBody> _heldBodies = new List<HeldBody>();
         private readonly List<HeldBody> _shippingBodies = new List<HeldBody>();
@@ -29,6 +34,8 @@ namespace FutufonAutoWorkerMscModLoader
         private Vector3 _forward;
         private Vector3 _right;
         private Quaternion _rotation;
+        private Quaternion _packageRotation;
+        private readonly List<PackageStack> _stacks = new List<PackageStack>();
         private Vector3 _workSurface;
         private Vector3 _packageSurface;
         private Vector3 _shippingSurface;
@@ -39,12 +46,16 @@ namespace FutufonAutoWorkerMscModLoader
         private GameObject _palletSlot;
         private GameObject _issuedItem;
 
-        internal FactoryDemo(Action<string> log, Action<string> status, Func<float> paceSeconds)
+        internal FactoryDemo(Action<string> log, Action<WorkerPhase, int> status, Func<float> paceSeconds, AutomationOptions options)
         {
             _log = log;
             _status = status;
             _paceSeconds = paceSeconds;
+            Options = options;
         }
+
+        internal void RequestPause() { Progress.RequestPause(); }
+        internal void MarkFailed() { _failed = true; }
 
         internal bool PlayerLeft()
         {
@@ -65,6 +76,8 @@ namespace FutufonAutoWorkerMscModLoader
             PrepareTableFrame(hit.point.y);
             // Factory models use local +Z as their top. Their XY plane belongs on the table.
             _rotation = Quaternion.LookRotation(_forward, Vector3.up) * Quaternion.Euler(-90f, 0f, 0f);
+            // Rotate the small cardboard package around world up, keeping its top on top.
+            _packageRotation = Quaternion.AngleAxis(180f, Vector3.up) * _rotation;
 
             foreach (var supply in _supplies)
             {
@@ -79,27 +92,45 @@ namespace FutufonAutoWorkerMscModLoader
                 RequireState(supply.Use, supply.PickState);
                 if (supply.SourceName == "PickChargers" || supply.SourceName == "PickManuals")
                     RequireState(supply.Use, "Open box");
-                supply.Position = SurfaceAt(supply.Offset, 0.105f);
-                CheckSupplyFootprint(supply);
+                if (Options.FetchSupplies)
+                {
+                    supply.Position = SurfaceAt(supply.Offset, 0.105f);
+                    CheckSupplyFootprint(supply);
+                }
             }
             _workSurface = SurfaceAt(0f, -0.23f);
             _packageSurface = SurfaceAt(-0.52f, -0.23f);
             foreach (float side in new[] { -0.7f, 0.32f })
                 foreach (float forward in new[] { -0.35f, -0.12f }) SurfaceAt(side, forward);
-            var shippingSource = GameObject.Find("PickBoxes");
-            if (shippingSource == null || Vector3.Distance(shippingSource.transform.position, _origin) > 40f)
-                throw new InvalidOperationException("Shipping box supply not found nearby.");
-            _shippingSource = GetFsm(shippingSource, "Use");
-            RequireState(_shippingSource, "Check old");
-            _shippingBox = RequiredObject(_shippingSource, "Package");
-            var shippingTrigger = RequiredObject(GetFsm(_shippingBox, "Data"), "Trigger");
-            _shipping = GetFsm(shippingTrigger, "Assembly");
-            RequireState(_shipping, "Assemble");
-            if (CompareLimit(_shipping, "Check full", "TotalPackages") != BatchSize)
-                throw new InvalidOperationException("Unexpected shipping box capacity. Expected 44.");
-            if (_shippingBox.activeInHierarchy) ValidateShippingCounts();
-            _shippingSurface = FindShippingSurface();
-            SelectPallet(); // Check available space before consuming any materials.
+            if (Options.PackCarton)
+            {
+                var shippingSource = GameObject.Find("PickBoxes");
+                if (shippingSource == null || Vector3.Distance(shippingSource.transform.position, _origin) > 40f)
+                    throw new InvalidOperationException("Shipping box supply not found nearby.");
+                _shippingSource = GetFsm(shippingSource, "Use");
+                RequireState(_shippingSource, "Check old");
+                _shippingBox = RequiredObject(_shippingSource, "Package");
+                var shippingTrigger = RequiredObject(GetFsm(_shippingBox, "Data"), "Trigger");
+                _shipping = GetFsm(shippingTrigger, "Assembly");
+                RequireState(_shipping, "Assemble");
+                if (CompareLimit(_shipping, "Check full", "TotalPackages") != BatchSize)
+                    throw new InvalidOperationException("Unexpected shipping box capacity. Expected 44.");
+                if (_shippingBox.activeInHierarchy) ValidateShippingCounts();
+                if (!Options.DeliverCarton && _shippingBox.activeInHierarchy &&
+                    RequiredInt(_shipping, "TotalPackages").Value == BatchSize)
+                    throw new InvalidOperationException("Carry the existing full carton to a pallet before starting another run.");
+                _shippingSurface = FindShippingSurface();
+            }
+            else PrepareStacks();
+
+            int target = 1;
+            if (Options.DeliverCarton || Options.Volume == BatchVolume.FillPallet)
+            {
+                SelectPallet(false); // Reserve the nearest pallet for the entire run.
+                if (Options.Volume == BatchVolume.FillPallet)
+                    target = CompareLimit(_pallet, "Insert box", "Slot") - RequiredInt(_pallet, "Slot").Value;
+            }
+            Progress = new BatchProgress(target);
 
             // Finished items and unfinished work must be cleared before another batch.
             foreach (var item in UnityEngine.Object.FindObjectsOfType(typeof(PlayMakerFSM)))
@@ -110,83 +141,223 @@ namespace FutufonAutoWorkerMscModLoader
                     Vector3.Distance(fsm.transform.position, _packageSurface) < 0.3f)
                     throw new InvalidOperationException("Clear finished boxes and unfinished parts from this table before starting another batch.");
             }
-            _log("CYCLE prepared at " + _origin + "; table=" + _table.name + "; capacity=" + BatchSize +
-                "; shipping=" + DescribeObject(_shippingBox) + "; pallet=" + _pallet.GetInstanceID());
+            _log("CYCLE prepared at " + _origin + "; table=" + _table.name + "; mode=" + Options.Mode +
+                "; targetCartons=" + target + "; native capacity=" + BatchSize);
         }
 
         internal IEnumerator Run()
         {
+            Progress.Resume();
             try
             {
-                yield return PrepareShippingBox();
-                int initialCount = RequiredInt(_shipping, "TotalPackages").Value;
-                if (initialCount < BatchSize)
-                    for (int i = 0; i < _supplies.Length; i++) yield return PrepareSupply(_supplies[i]);
-                for (int box = initialCount; box < BatchSize; box++)
+                while (!Progress.Complete && !Progress.PauseRequested)
                 {
-                    _status("Box " + (box + 1) + "/" + BatchSize + ": collecting parts");
-                    if (!_shippingBox.activeInHierarchy || RequiredInt(_shipping, "TotalPackages").Value != box)
-                        throw new InvalidOperationException("Shipping box became unavailable or its contents changed during the cycle.");
-                    _log("CYCLE begin package " + (box + 1) + "/44");
-                    var work = _workSurface;
-                    yield return Issue(_supplies[2], work);
-                    var tray = _issuedItem;
-                    yield return Issue(_supplies[0], work + _right * 0.23f);
-                    var charger = _issuedItem;
-                    yield return Issue(_supplies[1], work - _right * 0.23f);
-                    var manual = _issuedItem;
-                    yield return Issue(_supplies[3], _packageSurface);
-                    var package = _issuedItem;
-                    var contents = GetFsm(tray, "Contents");
-                    var use = GetFsm(package, "Use");
-
-                    _status("Box " + (box + 1) + "/" + BatchSize + ": assembling tray");
-                    yield return Assemble(tray, "TriggerCharger", charger, contents, "Chager", "Mould");
-                    yield return Assemble(tray, "TriggerManual", manual, contents, "Manual", "Mould");
-
-                    _status("Box " + (box + 1) + "/" + BatchSize + ": folding package");
-                    RequireState(use, "State 1");
-                    if (RequiredInt(use, "Stage").Value != 0)
-                        throw new InvalidOperationException("A new package did not start at Stage 0.");
-                    for (int fold = 1; fold <= 5; fold++)
+                    if (_waitingDelivery)
                     {
-                        int expected = fold;
-                        DispatchState(use, "State 1");
-                        yield return WaitFor(() => RequiredInt(use, "Stage").Value == expected, "fold " + fold);
+                        WaitingForPlayer = true;
+                        while ((_shippingBox.activeInHierarchy || PlayerLeft()) && !Progress.PauseRequested)
+                        {
+                            _status(_shippingBox.activeInHierarchy ? WorkerPhase.WaitingDelivery : WorkerPhase.Returning, 0);
+                            yield return null;
+                        }
+                        WaitingForPlayer = false;
+                        if (Progress.PauseRequested) break;
+                        _waitingDelivery = false;
+                    }
+                    if (Options.PackCarton)
+                    {
+                        yield return PrepareShippingBox();
+                        Progress.AdoptPackedCount(RequiredInt(_shipping, "TotalPackages").Value);
+                    }
+                    while (Progress.CurrentPackages < BatchSize && !Progress.PauseRequested)
+                    {
+                        if (!Options.PackCarton) yield return WaitForStackSpace();
+                        if (Progress.PauseRequested) break;
+                        yield return EnsureSupplies(); // No parts are issued until all four supplies are ready.
+                        if (Progress.PauseRequested) break;
+                        if (Options.PackCarton && (!_shippingBox.activeInHierarchy ||
+                            RequiredInt(_shipping, "TotalPackages").Value != Progress.CurrentPackages))
+                            throw new InvalidOperationException("Shipping box contents changed during the cycle.");
+                        yield return MakePackage(); // Always finishes the current package, even after F8.
+                        Progress.RecordPackage();
+                        ReleaseBodies();
+                        _log("CYCLE COMPLETE PACKAGE " + Progress.TotalPackages + "/" + Progress.TargetPackages +
+                            "; mode=" + Options.Mode + "; EmptyPackages=0");
                         yield return Pace();
                     }
-
-                    _status("Box " + (box + 1) + "/" + BatchSize + ": packing and closing");
-                    var triggerObject = RequiredObject(use, "TriggerMould");
-                    yield return Assemble(package, triggerObject.name, tray, use, "Mould", "ThisPackage");
-                    yield return WaitFor(() => RequiredBool(use, "Charger").Value && RequiredBool(use, "Manual").Value,
-                        "package contents copied from tray");
-                    DispatchState(use, "State 1");
-                    yield return WaitFor(() => RequiredInt(use, "Stage").Value == 4, "closed package");
-                    yield return Pace();
-                    if (!RequiredBool(use, "Charger").Value || !RequiredBool(use, "Manual").Value || !RequiredBool(use, "Mould").Value)
-                        throw new InvalidOperationException("The finished package is missing a component.");
-
-                    _status("Shipping box: " + (box + 1) + "/44 - inserting package");
-                    yield return PackShippingBox(package, use);
-                    ReleaseBodies();
-                    _log("CYCLE PACKED " + (box + 1) + "/44; EmptyPackages=0");
-                    yield return Pace();
+                    if (Progress.PauseRequested) break;
+                    if (Options.DeliverCarton) yield return DeliverShippingBox();
+                    else if (Options.PackCarton)
+                    {
+                        // Leave the native closed box with its Rigidbody for manual carrying.
+                        ReleaseBodies(_shippingBodies);
+                        _waitingDelivery = Progress.CompletedCartons + 1 < Progress.TargetCartons;
+                    }
+                    Progress.FinishCarton();
                 }
-                yield return DeliverShippingBox();
-                _status("DONE: 44/44 packed and delivered to the pallet. F8 starts the next box.");
-                _log("CYCLE COMPLETE: one shipping box with 44 complete packages delivered. No next cycle started.");
+                _status(Progress.Complete ? WorkerPhase.Done : WorkerPhase.Paused, 0);
+                _log(Progress.Complete ? "CYCLE COMPLETE: selected volume finished; no automatic restart." :
+                    "CYCLE PAUSED at a complete-package boundary: " + Progress.TotalPackages + "/" + Progress.TargetPackages);
             }
             finally
             {
+                WaitingForPlayer = false;
                 ReleaseBodies();
                 ReleaseBodies(_shippingBodies);
             }
         }
 
+        private IEnumerator MakePackage()
+        {
+            _status(WorkerPhase.Collecting, 0);
+            var work = _workSurface;
+            yield return Issue(_supplies[2], work);
+            var tray = _issuedItem;
+            yield return Issue(_supplies[0], work + _right * 0.23f);
+            var charger = _issuedItem;
+            yield return Issue(_supplies[1], work - _right * 0.23f);
+            var manual = _issuedItem;
+            yield return Issue(_supplies[3], _packageSurface);
+            var package = _issuedItem;
+            var contents = GetFsm(tray, "Contents");
+            var use = GetFsm(package, "Use");
+            _status(WorkerPhase.Assembling, 0);
+            yield return Assemble(tray, "TriggerCharger", charger, contents, "Chager", "Mould");
+            yield return Assemble(tray, "TriggerManual", manual, contents, "Manual", "Mould");
+            _status(WorkerPhase.Folding, 0);
+            RequireState(use, "State 1");
+            if (RequiredInt(use, "Stage").Value != 0) throw new InvalidOperationException("A new package did not start at Stage 0.");
+            for (int fold = 1; fold <= 5; fold++)
+            {
+                int expected = fold;
+                DispatchState(use, "State 1");
+                yield return WaitFor(() => RequiredInt(use, "Stage").Value == expected, "fold " + fold);
+                yield return Pace();
+            }
+            _status(WorkerPhase.Closing, 0);
+            var triggerObject = RequiredObject(use, "TriggerMould");
+            yield return Assemble(package, triggerObject.name, tray, use, "Mould", "ThisPackage");
+            yield return WaitFor(() => RequiredBool(use, "Charger").Value && RequiredBool(use, "Manual").Value,
+                "package contents copied from tray");
+            DispatchState(use, "State 1");
+            yield return WaitFor(() => RequiredInt(use, "Stage").Value == 4, "closed package");
+            yield return Pace();
+            if (!RequiredBool(use, "Charger").Value || !RequiredBool(use, "Manual").Value || !RequiredBool(use, "Mould").Value)
+                throw new InvalidOperationException("The finished package is missing a component.");
+            if (Options.PackCarton)
+            {
+                _status(WorkerPhase.Packing, 0);
+                yield return PackShippingBox(package, use);
+            }
+            else yield return StackPackage(package);
+        }
+
+        private IEnumerator EnsureSupplies()
+        {
+            if (Options.FetchSupplies)
+            {
+                foreach (var supply in _supplies)
+                {
+                    if (Progress.PauseRequested) yield break;
+                    // Relocate/open only when needed; a completed soft pause can resume the same run.
+                    if (!supply.Container.activeInHierarchy || RequiredInt(supply.Use, "Items").Value <= 0 || !SupplyOnTable(supply) ||
+                        !SupplyOpen(supply)) yield return PrepareSupply(supply);
+                }
+            }
+            else
+            {
+                WaitingForPlayer = true;
+                while (!Progress.PauseRequested)
+                {
+                    int missing = -1;
+                    for (int i = 0; i < _supplies.Length; i++)
+                        if (!SupplyOnTable(_supplies[i]) || RequiredInt(_supplies[i].Use, "Items").Value <= 0 ||
+                            !SupplyOpen(_supplies[i])) { missing = i; break; }
+                    if (missing < 0 && !PlayerLeft()) break;
+                    _status(missing < 0 ? WorkerPhase.Returning : SupplyOnTable(_supplies[missing]) &&
+                        !SupplyOpen(_supplies[missing]) ? WorkerPhase.WaitingOpenStock : WorkerPhase.WaitingStock, missing);
+                    yield return null;
+                }
+                WaitingForPlayer = false;
+            }
+        }
+
+        private bool SupplyOnTable(Supply supply)
+        {
+            if (supply.Container == null || !supply.Container.activeInHierarchy) return false;
+            var point = supply.Container.transform.position;
+            // Require the same work table and a reachable supply, rather than grabbing stock across the room.
+            RaycastHit hit;
+            return Vector3.Distance(point, _origin) < 1.6f && Mathf.Abs(point.y - _origin.y) < 0.5f &&
+                _table.Raycast(new Ray(new Vector3(point.x, _origin.y + 0.2f, point.z), Vector3.down), out hit, 0.4f);
+        }
+
+        private static bool SupplyOpen(Supply supply)
+        {
+            var open = supply.Use.FsmVariables.FindFsmBool("Open");
+            return open == null || open.Value;
+        }
+
+        private void PrepareStacks()
+        {
+            foreach (float side in new[] { 1.15f, 1.51f, 1.87f, 2.23f, -1.15f, -1.51f, -1.87f, -2.23f })
+            {
+                Vector3 surface;
+                try
+                {
+                    surface = SurfaceAt(side, -0.13f);
+                    foreach (int x in new[] { -1, 1 }) foreach (int z in new[] { -1, 1 })
+                        SurfaceAt(side + x * 0.165f, -0.13f + z * 0.11f);
+                }
+                catch (InvalidOperationException) { continue; }
+                bool occupied = false;
+                foreach (var collider in Physics.OverlapSphere(surface + Vector3.up * 0.15f, 0.18f))
+                    if (!collider.isTrigger && !HasTableAncestor(collider.transform)) { occupied = true; break; }
+                if (occupied) continue;
+                _stacks.Add(new PackageStack(surface));
+                if (_stacks.Count == 4) return;
+            }
+            throw new InvalidOperationException("Clear space alongside the work area for four package stacks.");
+        }
+
+        private PackageStack AvailableStack()
+        {
+            foreach (var stack in _stacks)
+            {
+                stack.Packages.RemoveAll(item => item == null || !item.activeInHierarchy ||
+                    Vector3.ProjectOnPlane(item.transform.position - stack.Surface, Vector3.up).magnitude > 0.18f);
+                if (stack.Packages.Count < 11) return stack;
+            }
+            return null;
+        }
+
+        private IEnumerator WaitForStackSpace()
+        {
+            WaitingForPlayer = true;
+            while ((AvailableStack() == null || PlayerLeft()) && !Progress.PauseRequested)
+            {
+                _status(AvailableStack() == null ? WorkerPhase.WaitingStacks : WorkerPhase.Returning, 0);
+                yield return null;
+            }
+            WaitingForPlayer = false;
+        }
+
+        private IEnumerator StackPackage(GameObject package)
+        {
+            var stack = AvailableStack();
+            if (stack == null) throw new InvalidOperationException("Output stacks were filled during assembly.");
+            Vector3 surface = stack.Surface;
+            foreach (var item in stack.Packages)
+                foreach (var collider in item.GetComponentsInChildren<Collider>())
+                    if (collider.enabled && !collider.isTrigger) surface.y = Mathf.Max(surface.y, collider.bounds.max.y);
+            yield return PlaceOnSurface(package, surface);
+            stack.Packages.Add(package);
+            _log("CYCLE STACKED complete package; stack height=" + stack.Packages.Count + "/11");
+        }
+
         private IEnumerator PrepareShippingBox()
         {
-            _status("Preparing shipping box and checking pallet space");
+            _status(WorkerPhase.Preparing, 0);
             if (!_shippingBox.activeInHierarchy)
             {
                 DispatchState(_shippingSource, "Check old");
@@ -226,13 +397,13 @@ namespace FutufonAutoWorkerMscModLoader
             ValidateShippingCounts();
             if (RequiredInt(_shipping, "TotalPackages").Value != BatchSize || _shipping.ActiveStateName != "Close box")
                 throw new InvalidOperationException("Shipping box is not closed at 44 packages.");
-            SelectPallet(); // Recheck in case the reserved pallet filled during assembly.
+            SelectPallet(true); // Recheck the same pallet; never spill a fill-pallet run onto another.
             int slotBefore = RequiredInt(_pallet, "Slot").Value;
             var job = GetFsm(RequiredObject(_pallet, "JobData"), "JobProgress");
             int totalBefore = RequiredInt(job, "PackagesTotal").Value;
             int emptyBefore = RequiredInt(job, "PackagesEmpty").Value;
             if (totalBefore > int.MaxValue - BatchSize) throw new InvalidOperationException("Job counter cannot accept another box.");
-            _status("44/44 complete - delivering to pallet");
+            _status(WorkerPhase.Delivering, 0);
             _shippingBox.transform.position = _palletSlot.transform.position + Vector3.up * 0.2f;
             StopMotion(_shippingBox);
             // Dispatch in the same frame as the move, before collision handlers can replace Part.
@@ -245,6 +416,7 @@ namespace FutufonAutoWorkerMscModLoader
             _log("CYCLE DELIVERED: pallet=" + _pallet.GetInstanceID() + " slot=" + (slotBefore + 1) +
                 " Job.PackagesTotal=" + totalBefore + "->" + (totalBefore + BatchSize) +
                 " Job.PackagesEmpty=" + emptyBefore + " (unchanged)");
+            ReleaseBodies(_shippingBodies);
         }
 
         private void ValidateShippingCounts()
@@ -255,8 +427,9 @@ namespace FutufonAutoWorkerMscModLoader
                 throw new InvalidOperationException("Shipping box has invalid or incomplete contents. Total=" + total + " Empty=" + empty);
         }
 
-        private void SelectPallet()
+        private void SelectPallet(bool retainTarget)
         {
+            var reserved = retainTarget ? _pallet : null;
             _pallet = null;
             _palletSlot = null;
             float nearest = float.MaxValue;
@@ -265,6 +438,7 @@ namespace FutufonAutoWorkerMscModLoader
                 var candidate = component as PlayMakerFSM;
                 if (candidate == null || candidate.gameObject.name != "TriggerBox" || candidate.FsmName != "Assembly" ||
                     !HasNamedAncestor(candidate.transform, "PalletPackagesPlayer") || !candidate.Fsm.Active) continue;
+                if (retainTarget && candidate != reserved) continue;
                 float distance = Vector3.Distance(candidate.transform.position, _origin);
                 if (distance > 40f || distance >= nearest) continue;
                 int slot = RequiredInt(candidate, "Slot").Value;
@@ -302,7 +476,7 @@ namespace FutufonAutoWorkerMscModLoader
             return property == null ? null : property.GetValue(target, null);
         }
 
-        private static int CompareLimit(PlayMakerFSM fsm, string stateName, string variable)
+        internal static int CompareLimit(PlayMakerFSM fsm, string stateName, string variable)
         {
             RequireState(fsm, stateName);
             foreach (var action in fsm.Fsm.GetState(stateName).Actions)
@@ -331,7 +505,7 @@ namespace FutufonAutoWorkerMscModLoader
 
         private IEnumerator PrepareSupply(Supply supply)
         {
-            _status("Preparing " + supply.SourceName);
+            _status(WorkerPhase.Preparing, Array.IndexOf(_supplies, supply));
             if (!supply.Container.activeInHierarchy)
             {
                 DispatchState(supply.Source, "Check old");
@@ -357,7 +531,9 @@ namespace FutufonAutoWorkerMscModLoader
 
         private IEnumerator Issue(Supply supply, Vector3 position)
         {
-            if (!supply.Container.activeInHierarchy) yield return PrepareSupply(supply);
+            // EnsureSupplies has already handled every refill before starting the current small box.
+            if (!supply.Container.activeInHierarchy || (!Options.FetchSupplies && !SupplyOnTable(supply)))
+                throw new InvalidOperationException("A supply was removed during assembly: " + supply.SourceName);
             int before = RequiredInt(supply.Use, "Items").Value;
             if (before <= 0) throw new InvalidOperationException("No stock in " + supply.SourceName);
             var known = ItemIds(supply.ItemName, supply.ItemFsm);
@@ -496,7 +672,7 @@ namespace FutufonAutoWorkerMscModLoader
         private IEnumerator PlaceOnSurface(GameObject item, Vector3 surface)
         {
             item.transform.parent = null;
-            item.transform.rotation = _rotation;
+            item.transform.rotation = item.name == "package(Clone)" ? _packageRotation : _rotation;
             item.transform.position = surface + Vector3.up * 0.2f;
             StopMotion(item);
             yield return null;
@@ -682,6 +858,13 @@ namespace FutufonAutoWorkerMscModLoader
             internal readonly Rigidbody Body;
             internal readonly bool WasKinematic;
             internal HeldBody(Rigidbody body, bool kinematic) { Body = body; WasKinematic = kinematic; }
+        }
+
+        private sealed class PackageStack
+        {
+            internal readonly Vector3 Surface;
+            internal readonly List<GameObject> Packages = new List<GameObject>();
+            internal PackageStack(Vector3 surface) { Surface = surface; }
         }
     }
 }

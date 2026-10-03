@@ -59,6 +59,9 @@
     <Compile Include="DemoStepper.cs" />
     <Compile Include="FactoryWorkMonitor.cs" />
     <Compile Include="WorkCheckStatus.cs" />
+    <Compile Include="AutomationModel.cs" />
+    <Compile Include="WorkerText.cs" />
+    <Compile Include="FactoryTelemetry.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
@@ -68,7 +71,7 @@
     <Error Condition="!Exists('$(MSCLoaderPath)')" Text="MSCLoader.dll not found. Install MSCLoader for MWC or set MSCLoaderPath to its MWC reference assembly." />
   </Target>
   <Target Name="DeployModToGame" AfterTargets="Build" Condition="'$(DeployMod)' == 'true'">
-    <Error Condition="!Exists('$(GameManagedPath)\MSCLoader.dll')" Text="Install MSCLoader for My Winter Car before deploying the mod." />
+    <!-- New loaders may inject MSCLoader.dll at runtime; the build can reference lib/MSCLoader.dll. -->
     <MakeDir Directories="$(ModsPath)" />
     <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(ModsPath)" />
     <Message Importance="high" Text="Copied $(TargetFileName) to $(ModsPath)" />

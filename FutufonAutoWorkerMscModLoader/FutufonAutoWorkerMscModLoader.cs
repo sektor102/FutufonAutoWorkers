@@ -15,8 +15,10 @@ namespace FutufonAutoWorkerMscModLoader
         public override string ID => "FutufonAutoWorker";
         public override string Name => "Futufon AutoWorker";
         public override string Author => "2Baikal";
-        public override string Version => "1.0.4";
-        public override string Description => "One F8 cycle assembles 44 complete packages, fills a shipping box and delivers it to a player pallet. AI-assisted code by Codex.";
+        public override string Version => "1.1.0";
+        public override string Description => WorkerText.Pick(Russian,
+            "Автосборка на заводе: четыре режима, 44 коробки или палета, мягкая пауза и компактная панель.",
+            "Factory assembly: four modes, 44 packages or one pallet, soft pause and a compact HUD.");
         public override Game SupportedGames => Game.MyWinterCar;
 
         private static readonly string[] FactoryObjectNames =
@@ -33,13 +35,24 @@ namespace FutufonAutoWorkerMscModLoader
         private SettingsKeybind _snapshotKey;
         private SettingsKeybind _recordKey;
         private SettingsSliderInt _workSpeed;
+        private SettingsSliderInt _mode, _volume;
+        private SettingsDropDownList _language;
+        private SettingsCheckBox _showPanel, _shiftNotifications;
+        private SettingsKeybind _panelKey;
+        private SettingsText _settingsHelp;
         private bool _loaded;
         private bool _recording;
         private float _nextSample;
         private DemoStepper _worker;
         private FactoryDemo _demo;
         private FactoryWorkMonitor _workMonitor;
-        private string _status = "READY: look at a clear factory table, then F8";
+        private FactoryTelemetry _telemetry;
+        private WorkerPhase _phase = WorkerPhase.Ready;
+        private int _phaseDetail;
+        private ShiftNotice _notice;
+        private float _noticeUntil;
+        private string _lastError;
+        private GUIStyle _hudStyle, _titleStyle;
         private StreamWriter _sessionLog;
         private string _sessionPath;
         private readonly Dictionary<int, string> _lastSnapshots = new Dictionary<int, string>();
@@ -55,10 +68,54 @@ namespace FutufonAutoWorkerMscModLoader
 
         private void Mod_Settings()
         {
-            _toggleKey = Keybind.Add("aw_toggle", "Start / stop one shipping cycle (44 packages)", KeyCode.F8);
-            _snapshotKey = Keybind.Add("aw_snapshot", "Dump factory states and variables", KeyCode.F9);
-            _recordKey = Keybind.Add("aw_record", "Toggle factory recording", KeyCode.F7);
-            _workSpeed = Settings.AddSlider("aw_speed", "Work speed (%) - 100 is default, lower is slower", 10, 100, 100);
+            _language = Settings.AddDropDownList("aw_language", "Язык / Language", new[] { "Русский", "English" }, 0, UpdateSettingsHelp);
+            _mode = Settings.AddSlider("aw_mode", "Режим / Automation mode", 0, 3, 0, UpdateSettingsHelp, new[]
+            {
+                "1: Полный цикл / Full cycle", "2: Переноска вручную / Manual delivery",
+                "3: Стопки коробок / Loose packages", "4: Компоненты вручную / Manual supplies"
+            });
+            _volume = Settings.AddSlider("aw_volume", "Объём / Volume", 0, 1, 0, UpdateSettingsHelp,
+                new[] { "44: одна коробка / One carton", "Палета / Fill one pallet" });
+            _workSpeed = Settings.AddSlider("aw_speed", "Скорость (%) / Speed (%)", 10, 100, 100);
+            _showPanel = Settings.AddCheckBox("aw_hud", "Панель / Compact HUD", true);
+            _shiftNotifications = Settings.AddCheckBox("aw_shift_notices", "Обед и конец смены / Shift notifications", true);
+            _toggleKey = Keybind.Add("aw_toggle", "Старт / мягкая пауза — Start / soft pause", KeyCode.F8);
+            _panelKey = Keybind.Add("aw_panel", "Показать / скрыть панель — Toggle HUD", KeyCode.F6);
+            _snapshotKey = Keybind.Add("aw_snapshot", "Снимок игровых состояний / Factory snapshot", KeyCode.F9);
+            _recordKey = Keybind.Add("aw_record", "Запись диагностики / Diagnostic recording", KeyCode.F7);
+            _settingsHelp = Settings.AddText("");
+            UpdateSettingsHelp();
+        }
+
+        private bool Russian { get { return _language == null || _language.GetSelectedItemIndex() == 0; } }
+        private AutomationOptions CurrentOptions()
+        {
+            return new AutomationOptions((AutomationMode)(_mode == null ? 0 : Mathf.Clamp(_mode.GetValue(), 0, 3)),
+                (BatchVolume)(_volume == null ? 0 : Mathf.Clamp(_volume.GetValue(), 0, 1)));
+        }
+        private void UpdateSettingsHelp()
+        {
+            if (_settingsHelp == null) return;
+            var options = CurrentOptions();
+            string description;
+            switch (options.Mode)
+            {
+                case AutomationMode.ManualDelivery:
+                    description = WorkerText.Pick(Russian, "Компоненты и упаковка автоматически. Полную коробку отнеси сам.",
+                        "Automatic supplies and packing. Carry the full carton yourself."); break;
+                case AutomationMode.LoosePackages:
+                    description = WorkerText.Pick(Russian, "Автопополнение. Готовые коробки — четыре стопки по 11. Упаковка вручную.",
+                        "Automatic restocking. Four stacks of 11 finished packages. Pack them manually."); break;
+                case AutomationMode.ManualSupplies:
+                    description = WorkerText.Pick(Russian, "Принеси и открой компоненты на столе. Готовые коробки — стопками; пополнение и упаковка вручную.",
+                        "Bring and open supplies on the table. Finished packages go into stacks; restocking and packing are manual."); break;
+                default:
+                    description = WorkerText.Pick(Russian, "Автопополнение, сборка, упаковка по 44 и переноска на палету.",
+                        "Automatic restocking, assembly, packing 44 packages and pallet delivery."); break;
+            }
+            _settingsHelp.SetValue(description + "\n" + WorkerText.Pick(Russian,
+                "Объём «Палета»: столько коробок, сколько свободных мест на ближайшей палете (до 4 × 44).\nF8 — закончить текущую маленькую коробку и сделать паузу; F8 — продолжить.\nРежим и объём применяются к следующему запуску; язык и скорость меняются сразу.",
+                "Pallet volume: as many cartons as free slots on the nearest pallet (up to 4 × 44).\nF8 finishes the current small box and pauses; F8 resumes.\nMode and volume apply to the next run; language and speed change immediately."));
         }
 
         private void Mod_OnLoad()
@@ -66,11 +123,12 @@ namespace FutufonAutoWorkerMscModLoader
             ResetDiagnostics();
             _loaded = true;
             _workMonitor = new FactoryWorkMonitor(Log);
+            _telemetry = new FactoryTelemetry(notice => { _notice = notice; _noticeUntil = Time.realtimeSinceStartup + 15f; }, Log);
             OpenSessionLog();
             _recording = true;
             Log("Loaded v" + Version + " for My Winter Car.");
             Log("DLL: " + GetType().Assembly.Location);
-            Log("F8 start/stop one 44-package shipping cycle; F7 recording; F9 full snapshot. Recording ON.");
+            Log("F8 start/resume/soft pause; F6 HUD; F7 recording; F9 snapshot. Recording ON.");
             Log("Work speed: " + WorkSpeedPercent() + "% (100% = original pace).");
             Log("Session log: " + (_sessionPath ?? "output_log.txt only"));
         }
@@ -87,26 +145,37 @@ namespace FutufonAutoWorkerMscModLoader
             _recording = false;
             _nextSample = 0f;
             _lastSnapshots.Clear();
-            StopWorker();
+            StopWorker(true);
             _workMonitor = null;
-            _status = "READY: look at a clear factory table, then F8";
+            _telemetry = null;
+            _phase = WorkerPhase.Ready;
+            _noticeUntil = 0f;
+            _lastError = null;
         }
 
         private void Mod_Update()
         {
             if (!_loaded) return;
             if (_workMonitor != null) _workMonitor.Poll();
+            if (_telemetry != null)
+                _telemetry.Poll(_shiftNotifications == null || _shiftNotifications.GetValue(),
+                    _workMonitor != null && _workMonitor.AtWork, _worker != null);
 
             if (_toggleKey != null && _toggleKey.GetKeybindDown())
             {
                 if (_worker != null)
                 {
-                    StopWorker();
-                    _status = "STOPPED: packed progress retained; clear unfinished parts before F8";
-                    Log("CYCLE stopped by F8. Packed contents retained; no further parts will be issued.");
+                    if (!_demo.Progress.PauseRequested)
+                    {
+                        _demo.RequestPause();
+                        Log("CYCLE soft pause requested by F8. Finish the current small box before stopping.");
+                    }
                 }
-                else StartCycle();
+                else if (Time.timeScale > 0f) StartCycle();
             }
+
+            if (_panelKey != null && _panelKey.GetKeybindDown() && _showPanel != null)
+                _showPanel.SetValue(!_showPanel.GetValue());
 
             if (_recordKey != null && _recordKey.GetKeybindDown())
             {
@@ -123,18 +192,19 @@ namespace FutufonAutoWorkerMscModLoader
             {
                 try
                 {
-                    if (_demo.PlayerLeft())
+                    if (_demo.PlayerLeft() && !_demo.WaitingForPlayer && !_demo.Progress.PauseRequested)
                     {
-                        StopWorker();
-                        _status = "STOPPED: player left the workstation";
-                        Log("CYCLE stopped: player left the workstation.");
+                        _demo.RequestPause();
+                        Log("CYCLE soft pause: player left the workstation. Finish the current small box.");
                     }
-                    else if (!_worker.Tick()) StopWorker();
+                    if (!_worker.Tick()) StopWorker(false);
                 }
                 catch (Exception exception)
                 {
-                    StopWorker();
-                    _status = "ERROR: " + exception.Message;
+                    _demo.MarkFailed();
+                    StopWorker(false);
+                    _phase = WorkerPhase.Error;
+                    _lastError = exception.Message;
                     Log("CYCLE ERROR: " + exception);
                     SampleFactory(true);
                 }
@@ -280,28 +350,38 @@ namespace FutufonAutoWorkerMscModLoader
         {
             try
             {
-                _demo = new FactoryDemo(Log, value => _status = value, () => 0.15f * 100f / WorkSpeedPercent());
-                _demo.Prepare();
+                var options = CurrentOptions();
+                bool resume = _demo != null && _demo.CanResume && _demo.Options.Matches(options) && !_demo.PlayerLeft();
+                if (!resume)
+                {
+                    _demo = new FactoryDemo(Log, (phase, detail) => { _phase = phase; _phaseDetail = detail; },
+                        () => 0.15f * 100f / WorkSpeedPercent(), options);
+                    _demo.Prepare();
+                }
                 _recording = true;
                 _lastSnapshots.Clear();
                 _nextSample = 0f;
                 _worker = new DemoStepper(_demo.Run());
-                _status = "STARTING: one shipping box, 44 complete packages";
-                Log("CYCLE started by F8. One shipping box only. Recording ON. Speed=" + WorkSpeedPercent() + "%.");
+                _phase = WorkerPhase.Preparing;
+                _lastError = null;
+                Log("CYCLE " + (resume ? "resumed" : "started") + " by F8. Mode=" + options.Mode +
+                    " TargetCartons=" + _demo.Progress.TargetCartons + "; speed=" + WorkSpeedPercent() + "%. Recording ON.");
             }
             catch (Exception exception)
             {
-                StopWorker();
-                _status = exception.Message;
+                if (_demo != null) _demo.MarkFailed();
+                StopWorker(false);
+                _phase = WorkerPhase.Error;
+                _lastError = exception.Message;
                 Log("CYCLE cannot start: " + exception.Message);
             }
         }
 
-        private void StopWorker()
+        private void StopWorker(bool discard)
         {
             if (_worker != null) _worker.Dispose();
             _worker = null;
-            _demo = null;
+            if (discard) _demo = null;
         }
 
         private int WorkSpeedPercent()
@@ -352,17 +432,70 @@ namespace FutufonAutoWorkerMscModLoader
         private void Mod_OnGUI()
         {
             if (!_loaded) return;
-            GUI.Label(new Rect(10, 10, 1000, 24), "AutoWorker " + Version + " | F8 one box (44) / stop | F7 record | F9 snapshot");
-            GUI.Label(new Rect(10, 34, 1200, 24), _status);
-            GUI.Label(new Rect(10, 58, 1200, 24), "Speed: " + WorkSpeedPercent() + "% | Recording: " +
-                (_recording ? "ON" : "OFF") + " | Logs: Mods/AutoWorkerLogs/");
-            if (_workMonitor != null)
+            if (_hudStyle == null)
             {
-                Color previous = GUI.color;
-                if (_workMonitor.State == WorkCheckState.Slacking) GUI.color = Color.red;
-                else if (_workMonitor.State == WorkCheckState.Working) GUI.color = Color.green;
-                GUI.Label(new Rect(10, 82, 1200, 24), _workMonitor.Status);
+                _hudStyle = new GUIStyle(GUI.skin.label) { fontSize = 14, wordWrap = false };
+                _hudStyle.normal.textColor = Color.white;
+                _titleStyle = new GUIStyle(_hudStyle) { fontSize = 15, fontStyle = FontStyle.Bold };
+            }
+            Color previous = GUI.color;
+            Color background = GUI.backgroundColor;
+            try
+            {
+                bool ru = Russian;
+                if ((_showPanel == null || _showPanel.GetValue()) &&
+                    (_worker != null || (_telemetry != null && _telemetry.NearFactory)))
+                {
+                    float width = Mathf.Min(480f, Screen.width - 20f);
+                    GUI.backgroundColor = new Color(0.04f, 0.04f, 0.04f, 0.92f);
+                    GUI.Box(new Rect(10, 10, width, 188), "");
+                    var mode = _demo == null ? CurrentOptions().Mode : _demo.Options.Mode;
+                    GUI.Label(new Rect(20, 16, width - 20, 22), "AutoWorker " + Version + " | " + WorkerText.Mode(ru, mode), _titleStyle);
+                    var progress = _demo == null ? null : _demo.Progress;
+                    string counts = progress == null ? "0/44" : progress.TotalPackages + "/" + progress.TargetPackages;
+                    if (progress != null && progress.TargetCartons > 1)
+                        counts += " | " + WorkerText.Pick(ru, "Коробки: ", "Cartons: ") + progress.CompletedCartons + "/" + progress.TargetCartons;
+                    GUI.Label(new Rect(20, 40, width - 20, 22), WorkerText.Pick(ru, "Прогресс: ", "Progress: ") + counts +
+                        " | " + WorkerText.Pick(ru, "Темп: ", "Speed: ") + WorkSpeedPercent() + "%", _hudStyle);
+                    bool pausing = _worker != null && progress != null && progress.PauseRequested;
+                    string phase = pausing ? WorkerText.Pick(ru, "Заканчиваю коробку и ставлю на паузу", "Finishing current package, then pausing") :
+                        _phase == WorkerPhase.Error ? WorkerText.Error(ru, _lastError) : WorkerText.Phase(ru, _phase, _phaseDetail, mode);
+                    GUI.Label(new Rect(20, 64, width - 20, 22), phase, _hudStyle);
+                    if (_telemetry != null)
+                    {
+                        string[] names = ru ? new[] { "Зар", "Инстр", "Лотки", "Упак" } : new[] { "Chargers", "Manuals", "Trays", "Sheets" };
+                        var stock = new StringBuilder();
+                        for (int i = 0; i < names.Length; i++) stock.Append(i == 0 ? "" : " | ").Append(names[i]).Append(": ").Append(_telemetry.Stock[i]);
+                        GUI.Label(new Rect(20, 88, width - 20, 22), stock.ToString(), _hudStyle);
+                        GUI.Label(new Rect(20, 112, width - 20, 22), WorkerText.Pick(ru, "Свободно на палетах: ", "Free pallet slots: ") +
+                            _telemetry.FreePalletSlots + "/" + _telemetry.PalletCapacity, _hudStyle);
+                    }
+                    if (_workMonitor != null)
+                    {
+                        if (_workMonitor.State == WorkCheckState.Slacking) GUI.color = new Color(1f, 0.4f, 0.3f);
+                        else if (_workMonitor.State == WorkCheckState.Working) GUI.color = new Color(0.5f, 1f, 0.5f);
+                        GUI.Label(new Rect(20, 136, width - 20, 22), WorkerText.Supervisor(ru, _workMonitor.State) +
+                            (_workMonitor.IdleMinutes.HasValue ? " | " + _workMonitor.IdleMinutes.Value.ToString("F1") : ""), _hudStyle);
+                        GUI.color = previous;
+                    }
+                    GUI.Label(new Rect(20, 164, width - 20, 22), WorkerText.Pick(ru,
+                        "F8 старт/пауза | F6 панель | F7 лог | F9 снимок",
+                        "F8 start/pause | F6 HUD | F7 log | F9 snapshot"), _hudStyle);
+                }
+                // Notices remain visible when the user hides the HUD.
+                if (Time.realtimeSinceStartup < _noticeUntil && (_shiftNotifications == null || _shiftNotifications.GetValue()))
+                {
+                    float width = Mathf.Min(600f, Screen.width - 20f);
+                    float left = (Screen.width - width) * 0.5f;
+                    GUI.backgroundColor = new Color(0.12f, 0.12f, 0.04f, 0.95f);
+                    GUI.Box(new Rect(left, 20, width, 40), "");
+                    GUI.Label(new Rect(left + 12, 28, width - 24, 26), WorkerText.Notice(ru, _notice), _titleStyle);
+                }
+            }
+            finally
+            {
                 GUI.color = previous;
+                GUI.backgroundColor = background;
             }
         }
     }

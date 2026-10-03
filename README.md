@@ -1,81 +1,107 @@
 # Futufon AutoWorker for My Winter Car
 
-The current version is **1.0.4 for MSCLoader**. Press F8 at a factory table
-to assemble 44 complete packages, fill one shipping box and deliver it to
-a free player pallet slot. Supplies are refilled automatically. The worker
-stops after that box; another F8 starts the next cycle.
+Version **1.1.0 for MSCLoader** automates factory packaging with four selectable
+modes, a compact HUD, soft pause and Russian/English interface.
+The default F8 run assembles 44 complete packages, fills a shipping carton,
+delivers it to a player pallet and stops.
 
-**[Download the 1.0.4 ZIP](dist/FutufonAutoWorker-1.0.4.zip)** ·
+**[Download 1.1.0](dist/FutufonAutoWorker-1.1.0.zip)** ·
 **[Installation and controls](INSTALL.md)** ·
 **[Инструкция на русском](FutufonAutoWorkerMscModLoader/README.md)**
 
-## Requirements and installation
+## Settings and controls
 
-- My Winter Car.
-- [MSCLoader for My Winter Car](https://www.nexusmods.com/mywintercar/mods/3).
+Open **MSCLoader → Futufon AutoWorker**. The mode slider defaults to Full cycle.
 
-Close the game and copy the DLL from the archive's `Mods` directory into
-your MSCLoader Mods folder. Restart, load a save and check for `AutoWorker 1.0.4`.
-Clock in at Futufon, stand at a clear table and look down at the tabletop.
-Leave room for the supply row, a shipping box beside the table and a free
-player pallet slot.
+| Mode | Supplies | Small packages | Shipping carton |
+| --- | --- | --- | --- |
+| 1. Full cycle | Automatic pickup/refill | Automatically packed | Delivered to pallet |
+| 2. Manual delivery | Automatic pickup/refill | Automatically packed | Carry it yourself |
+| 3. Loose packages | Automatic pickup/refill | Four stacks of up to 11 | Pack and deliver manually |
+| 4. Manual supplies | Bring and open them yourself | Four stacks of up to 11 | Pack and deliver manually |
 
-## Controls and features
+Mode 4 leaves supply containers where the player placed them. Empty/missing
+supplies pause production until the player brings replacements to the same
+table. Loose-package modes wait when the output stacks are full. Packages
+in stacks remain ordinary pickable game objects.
+
+The volume slider selects **one carton (44)** or **fill one pallet**: the
+initially free slots on the nearest available player pallet, up to four
+cartons/176 packages. Full cycle uses that same pallet throughout the run.
+Manual delivery waits for the current carton to be delivered before starting
+another; loose-package modes wait for output space. Manual actions stay manual
+at both volumes.
 
 | Control | Action |
 | --- | --- |
-| F8 | Start one shipping cycle, or stop a running cycle |
-| F7 | Toggle factory diagnostics |
+| F8 | Start/resume; request a soft pause while running |
+| F6 | Show/hide the compact HUD |
+| F7 | Toggle diagnostic recording |
 | F9 | Save a detailed factory snapshot |
-| Work speed slider | 100% original pace; 10–99% slower |
+| Speed slider | 100% original pace; 10–99% slower |
+| Language | Russian or English; updates immediately |
 
-Keybinds and speed are configurable in the MSCLoader mod settings.
-The game performs component consumption, assembly, folding, packing, closing
-and delivery accounting through its existing PlayMaker actions. Packages are
-checked for all three components before shipping, and delivery is confirmed
-against the native job counters. The mod stops when the player leaves the
-workstation or an operation fails. Packed progress in an unfinished shipping
-box is retained; clear unfinished loose parts before restarting.
+Soft pause finishes the current small package and packs/stacks it before
+stopping. F8 resumes the same run with retained progress when mode/volume are
+unchanged and the player is back at the same workstation. Mode and volume
+are captured at start; language, speed and HUD visibility remain live settings.
 
-Version 1.0.4 places supplies with their openings facing up in a spaced row along the table,
-with separate assembly positions on the tabletop. A supervisor indicator
-shows the native work-check state and reads the idle-time counter. It does
-not alter attendance, supervisor decisions, pay or idle-time records.
+The HUD shows progress, component stocks, free player pallet slots, current
+operation and native supervisor checks. Optional notifications announce lunch
+at 11:00 and shift finish at 16:00, once per game day while working at the factory.
+They remain visible with the HUD hidden and do not automatically pause production.
+The small cardboard package faces the player, rotated 180 degrees from 1.0.4.
+
+## Installation
+
+Requires My Winter Car and [MSCLoader for My Winter Car](https://www.nexusmods.com/mywintercar/mods/3).
+Close the game, copy the DLL from the ZIP's `Mods` directory into your MSCLoader
+Mods folder, restart and load a save. Clock in at Futufon, stand at a clear
+factory table, look down at the tabletop and press F8. The panel displays 1.1.0.
+Leave floor space beside the table for carton modes and table space alongside
+the assembly area for loose-package stacks.
+
+The game performs consumption, assembly, folding, packing and job accounting
+through its existing PlayMaker actions. The mod checks complete contents before
+packing and verifies delivery against native counters. Supervisor monitoring
+reads the game's decision and idle-time counter; attendance, pay and supervisor
+behavior are not overridden. Moving away during assembly requests a soft pause.
+Players can walk away while the worker waits for manual supplies/delivery.
+Runtime errors stop execution; clear any unfinished parts before restarting.
+
+Logs: `Mods/AutoWorkerLogs/`, beside the DLL. Stack/run progress is retained during
+the current loaded session; after a save reload, loose-package runs start anew.
+Partial shipping-carton contents are read from the game.
 
 ## Validation
 
-The full 1.0.3 cycle was tested in game: 44 complete packages, automatic
-refills, pallet delivery, `PackagesTotal=802→846`, `PackagesEmpty=0` and native
-supervisor work recognition. Version 1.0.4 compiles against the installed
-game and passes checks for runner cancellation, native assembly/packing
-flows and supervisor status interpretation. The updated layout, monitor
-display and reduced speeds still need in-game verification.
+In-game logs verify three full 1.0.4 cycles: 44 packages each, native stock refills,
+pallet delivery, `PackagesTotal=802→934`, `PackagesEmpty=0` and supervisor work
+recognition. Version 1.1.0 builds against the installed game and passes tests for
+four mode boundaries, pause/resume progress, exact 44/176 limits, pallet targets,
+RU/EN texts, shift reminders and native FSM assumptions.
+**The new stack layout, manual modes and 1.1.0 display still need in-game testing.**
 
 ## Building
 
 Open `FutufonAutoWorkers.slnx` in Visual Studio. It builds the active
 `FutufonAutoWorkerMscModLoader` project. Install .NET Framework 3.5 reference
-assemblies and MSCLoader into your game first. Game DLLs are referenced
-from the installed game's `mywintercar_Data/Managed` directory.
-
-Alternatively, from PowerShell 7:
+assemblies and MSCLoader into your game first. Or use PowerShell 7:
 
 ```powershell
 .\FutufonAutoWorkerMscModLoader\build.ps1 -GamePath 'H:\SteamLibrary\steamapps\common\My Winter Car'
 .\FutufonAutoWorkerMscModLoader\tests\run-tests.ps1
 ```
 
-Use your own game path. The compiled mod is
-`FutufonAutoWorkerMscModLoader/bin/Release/FutufonAutoWorkerMscModLoader.dll`.
-Only this DLL goes into `Mods`. The optional native-flow verification script
-uses a local extraction of the installed game's FSM data; those data are
-not included in the repository.
+If the loader injects its assembly at runtime, obtain the MWC reference DLL from
+the loader development files and place it in `lib/MSCLoader.dll`, or pass its
+path with `-MSCLoaderPath` when building. The loader must also be installed in game.
 
-## Legacy code
+Only `FutufonAutoWorkerMscModLoader/bin/Release/FutufonAutoWorkerMscModLoader.dll`
+goes into Mods. Native-flow/shift verification scripts accept JSON extracted
+locally from an installed game; game data and reference DLLs are not distributed.
 
-The `FutufonAutoWorkers` directory contains the earlier BepInEx experiments.
-It is retained for reference and is not built by the root solution. The
-active implementation and download use MSCLoader.
+The `FutufonAutoWorkers` folder retains earlier BepInEx experiments for reference;
+the active root solution and download use MSCLoader.
 
-License: [MIT](LICENSE). Code is AI-assisted, with disclosure in the assembly
-trademark metadata.
+License: [MIT](LICENSE). AI-assisted code is disclosed in assembly metadata.
