@@ -359,5 +359,11 @@ MigrationBackup/
 # Ionide (cross platform F# VS Code tools) working folder
 .ionide/
 
+# Local game inspection, session recordings and reference assemblies.
+tools/
+diagnostics/
+FutufonAutoWorkerMscModLoader/lib/*.dll
+FutufonAutoWorkerMscModLoader/lib/*.xml
+
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
