@@ -43,7 +43,8 @@ namespace FutufonAutoWorkerMscModLoader
             State = WorkCheckStatus.Read(active && atWork != null, clockedIn, nativeState, increasing);
             Status = WorkCheckStatus.Text(State);
             if (idle != null) Status += " | Idle counter: " + idle.Value.ToString("F2", CultureInfo.InvariantCulture);
-            string record = State + "|" + clockedIn + "|" + (idle == null ? "?" : idle.Value.ToString("F1", CultureInfo.InvariantCulture));
+            // Keep the HUD current; write only changes of the decision/attendance, not every counter tick.
+            string record = State + "|" + clockedIn;
             if (record != _lastRecord)
             {
                 var pulse = active ? _logic.FsmVariables.FindFsmBool("IsWorking") : null;

@@ -11,6 +11,7 @@ namespace FutufonAutoWorkerMscModLoader
     {
         internal const int BatchSize = 44;
         private readonly Action<string> _log;
+        private readonly Action<string> _report, _progress;
         private readonly Action<WorkerPhase, int> _status;
         internal readonly AutomationOptions Options;
         internal BatchProgress Progress { get; private set; }
@@ -46,9 +47,11 @@ namespace FutufonAutoWorkerMscModLoader
         private GameObject _palletSlot;
         private GameObject _issuedItem;
 
-        internal FactoryDemo(Action<string> log, Action<WorkerPhase, int> status, Func<float> paceSeconds, AutomationOptions options)
+        internal FactoryDemo(Action<string, LogKind> log, Action<WorkerPhase, int> status, Func<float> paceSeconds, AutomationOptions options)
         {
-            _log = log;
+            _log = message => log(message, LogKind.Detail);
+            _report = message => log(message, LogKind.Event);
+            _progress = message => log(message, LogKind.Progress);
             _status = status;
             _paceSeconds = paceSeconds;
             Options = options;
@@ -181,7 +184,7 @@ namespace FutufonAutoWorkerMscModLoader
                         yield return MakePackage(); // Always finishes the current package, even after F8.
                         Progress.RecordPackage();
                         ReleaseBodies();
-                        _log("CYCLE COMPLETE PACKAGE " + Progress.TotalPackages + "/" + Progress.TargetPackages +
+                        _progress("CYCLE COMPLETE PACKAGE " + Progress.TotalPackages + "/" + Progress.TargetPackages +
                             "; mode=" + Options.Mode + "; EmptyPackages=0");
                         yield return Pace();
                     }
@@ -196,7 +199,7 @@ namespace FutufonAutoWorkerMscModLoader
                     Progress.FinishCarton();
                 }
                 _status(Progress.Complete ? WorkerPhase.Done : WorkerPhase.Paused, 0);
-                _log(Progress.Complete ? "CYCLE COMPLETE: selected volume finished; no automatic restart." :
+                _report(Progress.Complete ? "CYCLE COMPLETE: selected volume finished; no automatic restart." :
                     "CYCLE PAUSED at a complete-package boundary: " + Progress.TotalPackages + "/" + Progress.TargetPackages);
             }
             finally
@@ -413,7 +416,7 @@ namespace FutufonAutoWorkerMscModLoader
                 RequiredInt(_pallet, "Slot").Value == slotBefore + 1 &&
                 RequiredInt(job, "PackagesTotal").Value == totalBefore + BatchSize &&
                 RequiredInt(job, "PackagesEmpty").Value == emptyBefore, "pallet receipt and job accounting");
-            _log("CYCLE DELIVERED: pallet=" + _pallet.GetInstanceID() + " slot=" + (slotBefore + 1) +
+            _report("CYCLE DELIVERED: pallet=" + _pallet.GetInstanceID() + " slot=" + (slotBefore + 1) +
                 " Job.PackagesTotal=" + totalBefore + "->" + (totalBefore + BatchSize) +
                 " Job.PackagesEmpty=" + emptyBefore + " (unchanged)");
             ReleaseBodies(_shippingBodies);

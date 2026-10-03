@@ -15,7 +15,7 @@ namespace FutufonAutoWorkerMscModLoader
         public override string ID => "FutufonAutoWorker";
         public override string Name => "Futufon AutoWorker";
         public override string Author => "2Baikal";
-        public override string Version => "1.1.0";
+        public override string Version => "1.1.1";
         public override string Description => WorkerText.Pick(Russian,
             "Автосборка на заводе: четыре режима, 44 коробки или палета, мягкая пауза и компактная панель.",
             "Factory assembly: four modes, 44 packages or one pallet, soft pause and a compact HUD.");
@@ -41,7 +41,12 @@ namespace FutufonAutoWorkerMscModLoader
         private SettingsKeybind _panelKey;
         private SettingsText _settingsHelp;
         private bool _loaded;
-        private bool _recording;
+        private SessionLogger _logger;
+        private bool _recording
+        {
+            get { return _logger != null && _logger.Detailed; }
+            set { if (_logger != null) _logger.Detailed = value; }
+        }
         private float _nextSample;
         private DemoStepper _worker;
         private FactoryDemo _demo;
@@ -121,14 +126,14 @@ namespace FutufonAutoWorkerMscModLoader
         private void Mod_OnLoad()
         {
             ResetDiagnostics();
+            _logger = new SessionLogger(WriteSessionLog, message => ModConsole.Print("[AutoWorker] " + message));
             _loaded = true;
-            _workMonitor = new FactoryWorkMonitor(Log);
+            _workMonitor = new FactoryWorkMonitor(message => _logger.Write(message, LogKind.Progress));
             _telemetry = new FactoryTelemetry(notice => { _notice = notice; _noticeUntil = Time.realtimeSinceStartup + 15f; }, Log);
             OpenSessionLog();
-            _recording = true;
             Log("Loaded v" + Version + " for My Winter Car.");
             Log("DLL: " + GetType().Assembly.Location);
-            Log("F8 start/resume/soft pause; F6 HUD; F7 recording; F9 snapshot. Recording ON.");
+            Log("F8 start/resume/soft pause; F6 HUD; F7 detailed recording; F9 snapshot to file. Detailed recording OFF.");
             Log("Work speed: " + WorkSpeedPercent() + "% (100% = original pace).");
             Log("Session log: " + (_sessionPath ?? "output_log.txt only"));
         }
@@ -212,13 +217,14 @@ namespace FutufonAutoWorkerMscModLoader
 
             if (_recording && Time.realtimeSinceStartup >= _nextSample)
             {
-                _nextSample = Time.realtimeSinceStartup + 0.5f;
+                _nextSample = Time.realtimeSinceStartup + 1f;
                 SampleFactory(false);
             }
         }
 
         private void SampleFactory(bool includeGraph)
         {
+            Action<string> write = message => _logger.Write(message, includeGraph ? LogKind.Snapshot : LogKind.Detail);
             var fsms = UnityEngine.Object.FindObjectsOfType(typeof(PlayMakerFSM));
             int count = 0;
             var liveIds = new HashSet<int>();
@@ -227,40 +233,45 @@ namespace FutufonAutoWorkerMscModLoader
             {
                 var fsm = item as PlayMakerFSM;
                 if (fsm == null || fsm.Fsm == null || !IsFactoryObject(fsm.transform)) continue;
+                if (!SessionLogger.ShouldSample(fsm.gameObject.name, fsm.FsmName, includeGraph)) continue;
 
                 count++;
                 int id = fsm.GetInstanceID();
-                liveIds.Add(id);
+                if (!includeGraph) liveIds.Add(id);
                 try
                 {
                     string snapshot = DescribeFsm(fsm);
                     string previous;
                     if (includeGraph || !_lastSnapshots.TryGetValue(id, out previous) || previous != snapshot)
                     {
-                        Log(snapshot);
-                        _lastSnapshots[id] = snapshot;
+                        write(snapshot);
+                        if (!includeGraph) _lastSnapshots[id] = snapshot;
                     }
 
                     if (includeGraph)
-                        DumpGraph(fsm);
+                        DumpGraph(fsm, write);
                 }
                 catch (Exception exception)
                 {
-                    Log("Cannot inspect " + fsm.gameObject.name + ": " + exception.Message);
+                    write("Cannot inspect " + fsm.gameObject.name + ": " + exception.Message);
                 }
             }
 
             var removedIds = new List<int>();
-            foreach (var id in _lastSnapshots.Keys)
-                if (!liveIds.Contains(id)) removedIds.Add(id);
+            if (!includeGraph)
+                foreach (var id in _lastSnapshots.Keys)
+                    if (!liveIds.Contains(id)) removedIds.Add(id);
             foreach (var id in removedIds)
             {
-                Log("FSM disappeared or became inactive: " + _lastSnapshots[id]);
+                write("FSM disappeared or became inactive: " + _lastSnapshots[id]);
                 _lastSnapshots.Remove(id);
             }
 
             if (includeGraph)
-                Log("Factory FSMs found: " + count + ". Visit the factory if none are loaded.");
+            {
+                write("Factory FSMs found: " + count + ". Visit the factory if none are loaded.");
+                Log(_sessionLog != null ? "Factory snapshot saved to " + _sessionPath : "Factory snapshot could not be saved: log file unavailable.");
+            }
         }
 
         private static bool IsFactoryObject(Transform target)
@@ -291,7 +302,7 @@ namespace FutufonAutoWorkerMscModLoader
             return text.ToString();
         }
 
-        private void DumpGraph(PlayMakerFSM fsm)
+        private void DumpGraph(PlayMakerFSM fsm, Action<string> write)
         {
             foreach (var state in fsm.FsmStates)
             {
@@ -301,18 +312,18 @@ namespace FutufonAutoWorkerMscModLoader
                     if (action != null) text.Append(" | action:").Append(action.GetType().Name);
                 foreach (var transition in state.Transitions)
                     text.Append(" | ").Append(transition.EventName).Append(" -> ").Append(transition.ToState);
-                Log(text.ToString().Replace("[AutoWorker] ", ""));
+                write(text.ToString().Replace("[AutoWorker] ", ""));
                 foreach (var action in state.Actions)
                 {
                     if (action == null) continue;
                     var parameters = new StringBuilder("    " + action.GetType().Name);
                     foreach (var field in action.GetType().GetFields(BindingFlags.Instance | BindingFlags.Public))
                         parameters.Append(" | ").Append(field.Name).Append('=').Append(DescribeValue(field.GetValue(action)));
-                    Log(parameters.ToString());
+                    write(parameters.ToString());
                 }
             }
             foreach (var transition in fsm.Fsm.GlobalTransitions)
-                Log("  Global " + transition.EventName + " -> " + transition.ToState);
+                write("  Global " + transition.EventName + " -> " + transition.ToState);
         }
 
         private static string DescribeValue(object value)
@@ -354,18 +365,17 @@ namespace FutufonAutoWorkerMscModLoader
                 bool resume = _demo != null && _demo.CanResume && _demo.Options.Matches(options) && !_demo.PlayerLeft();
                 if (!resume)
                 {
-                    _demo = new FactoryDemo(Log, (phase, detail) => { _phase = phase; _phaseDetail = detail; },
+                    _demo = new FactoryDemo(_logger.Write, (phase, detail) => { _phase = phase; _phaseDetail = detail; },
                         () => 0.15f * 100f / WorkSpeedPercent(), options);
                     _demo.Prepare();
                 }
-                _recording = true;
                 _lastSnapshots.Clear();
                 _nextSample = 0f;
                 _worker = new DemoStepper(_demo.Run());
                 _phase = WorkerPhase.Preparing;
                 _lastError = null;
                 Log("CYCLE " + (resume ? "resumed" : "started") + " by F8. Mode=" + options.Mode +
-                    " TargetCartons=" + _demo.Progress.TargetCartons + "; speed=" + WorkSpeedPercent() + "%. Recording ON.");
+                    " TargetCartons=" + _demo.Progress.TargetCartons + "; speed=" + WorkSpeedPercent() + "%. Detailed recording=" + _recording + ".");
             }
             catch (Exception exception)
             {
@@ -409,7 +419,11 @@ namespace FutufonAutoWorkerMscModLoader
 
         private void Log(string message)
         {
-            ModConsole.Print("[AutoWorker] " + message);
+            _logger.Write(message, LogKind.Event);
+        }
+
+        private void WriteSessionLog(string message)
+        {
             if (_sessionLog == null) return;
             try { _sessionLog.WriteLine(DateTime.Now.ToString("HH:mm:ss.fff") + " [AutoWorker] " + message); }
             catch (Exception exception)
@@ -479,8 +493,9 @@ namespace FutufonAutoWorkerMscModLoader
                         GUI.color = previous;
                     }
                     GUI.Label(new Rect(20, 164, width - 20, 22), WorkerText.Pick(ru,
-                        "F8 старт/пауза | F6 панель | F7 лог | F9 снимок",
-                        "F8 start/pause | F6 HUD | F7 log | F9 snapshot"), _hudStyle);
+                        "F8 старт/пауза | F6 панель | F7 диагн: ", "F8 start/pause | F6 HUD | F7 diag: ") +
+                        (_recording ? WorkerText.Pick(ru, "вкл", "ON") : WorkerText.Pick(ru, "выкл", "OFF")) +
+                        WorkerText.Pick(ru, " | F9 снимок", " | F9 snapshot"), _hudStyle);
                 }
                 // Notices remain visible when the user hides the HUD.
                 if (Time.realtimeSinceStartup < _noticeUntil && (_shiftNotifications == null || _shiftNotifications.GetValue()))

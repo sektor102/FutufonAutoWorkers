@@ -1,11 +1,11 @@
 # Futufon AutoWorker for My Winter Car
 
-Version **1.1.0 for MSCLoader** automates factory packaging with four selectable
+Version **1.1.1 for MSCLoader** automates factory packaging with four selectable
 modes, a compact HUD, soft pause and Russian/English interface.
 The default F8 run assembles 44 complete packages, fills a shipping carton,
 delivers it to a player pallet and stops.
 
-**[Download 1.1.0](dist/FutufonAutoWorker-1.1.0.zip)** ·
+**[Download 1.1.1](dist/FutufonAutoWorker-1.1.1.zip)** ·
 **[Installation and controls](INSTALL.md)** ·
 **[Инструкция на русском](FutufonAutoWorkerMscModLoader/README.md)**
 
@@ -36,8 +36,8 @@ at both volumes.
 | --- | --- |
 | F8 | Start/resume; request a soft pause while running |
 | F6 | Show/hide the compact HUD |
-| F7 | Toggle diagnostic recording |
-| F9 | Save a detailed factory snapshot |
+| F7 | Toggle detailed recording to file (off by default) |
+| F9 | Save one full snapshot to file |
 | Speed slider | 100% original pace; 10–99% slower |
 | Language | Russian or English; updates immediately |
 
@@ -57,7 +57,7 @@ The small cardboard package faces the player, rotated 180 degrees from 1.0.4.
 Requires My Winter Car and [MSCLoader for My Winter Car](https://www.nexusmods.com/mywintercar/mods/3).
 Close the game, copy the DLL from the ZIP's `Mods` directory into your MSCLoader
 Mods folder, restart and load a save. Clock in at Futufon, stand at a clear
-factory table, look down at the tabletop and press F8. The panel displays 1.1.0.
+factory table, look down at the tabletop and press F8. The panel displays 1.1.1.
 Leave floor space beside the table for carton modes and table space alongside
 the assembly area for loose-package stacks.
 
@@ -77,10 +77,10 @@ Partial shipping-carton contents are read from the game.
 
 In-game logs verify three full 1.0.4 cycles: 44 packages each, native stock refills,
 pallet delivery, `PackagesTotal=802→934`, `PackagesEmpty=0` and supervisor work
-recognition. Version 1.1.0 builds against the installed game and passes tests for
+recognition. Version 1.1.1 builds against the installed game and passes tests for
 four mode boundaries, pause/resume progress, exact 44/176 limits, pallet targets,
 RU/EN texts, shift reminders and native FSM assumptions.
-**The new stack layout, manual modes and 1.1.0 display still need in-game testing.**
+**The new stack layout, manual modes and 1.1.1 display still need in-game testing.**
 
 ## Building
 

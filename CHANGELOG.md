@@ -1,5 +1,14 @@
 # Changes
 
+## 1.1.1
+
+- Detailed diagnostics are OFF on load; F8 no longer enables recording.
+- Continuous factory clock ticks are excluded; F9 still captures the full clock.
+- Per-package progress, supervisor changes and debug snapshots go to file only.
+- F7 enables optional file-only diagnostics; the HUD shows ON/OFF.
+- Regression checks cover normal-cycle console volume, 2000 clock ticks and F9.
+
+
 ## 1.1.0
 
 - Rotate the small cardboard package 180 degrees toward the player.

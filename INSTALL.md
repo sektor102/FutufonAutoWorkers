@@ -1,11 +1,11 @@
-# Futufon AutoWorker 1.1.0
+# Futufon AutoWorker 1.1.1
 
 Requires My Winter Car with MSCLoader for My Winter Car:
 https://www.nexusmods.com/mywintercar/mods/3
 
 1. Close the game.
 2. Copy `Mods/FutufonAutoWorkerMscModLoader.dll` into your MSCLoader Mods folder.
-3. Restart and load a save. At the factory the HUD displays `AutoWorker 1.1.0`.
+3. Restart and load a save. At the factory the HUD displays `AutoWorker 1.1.1`.
 4. Clock in at Futufon, stand at a clear table and look down at the tabletop.
 5. Choose settings in MSCLoader → Futufon AutoWorker and press F8.
 
@@ -62,14 +62,17 @@ once per game day while working at the factory. They work with the HUD hidden
 and do not pause automation or change game time/attendance.
 
 Work speed: 100% is the original pace; 10–99% slows the steps down.
-F7 toggles diagnostic recording. F9 saves a detailed factory snapshot.
+Detailed diagnostics start OFF and F8 does not enable them. F7 toggles detailed
+recording to the file; clock ticks are excluded from continuous recording.
+F9 appends one full snapshot (including the clock) to the file. Progress and
+supervisor changes stay in the file; the console shows only main events and errors.
 All keys are configurable in MSCLoader.
 
 Logs: `Mods/AutoWorkerLogs/`. Include the newest session log, mod/game version
 and other installed mods when reporting a problem.
 
 Three complete 1.0.4 cycles were tested in game, including refills, delivery
-and supervisor recognition. Version 1.1.0 builds and passes local tests;
+and supervisor recognition. Version 1.1.1 builds and passes local tests;
 new stacks, manual modes and the updated HUD still need in-game verification.
 
 Russian instructions: `README-RU.md` in the download.
