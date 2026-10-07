@@ -1,5 +1,19 @@
 # Changes
 
+## 1.2.0 — 8 October 2026
+
+- Diagnostic shortcuts are unassigned; previous F7/F9 defaults are not imported.
+- Assignable next-mode hotkey and live menu switching at complete-package boundaries.
+- Retain batch progress, existing stacks and carton contents across mode changes.
+- Restore visual-only lower filled carton layers, including after save loading.
+- HUD clock-in/out times, saved last-shift reconstruction and native signed overtime.
+- Tuesday-only reminder for the 13:10 meeting; hints show assigned keybindings.
+- Checks cover all 16 mode transitions, mixed outputs, pause/resume, partial cartons,
+  44/176 limits, shift data, lower-row counts and default logging.
+
+Public test release. All four modes in 1.1.1 were tested in-game by the user.
+New 1.2.0 transitions, visuals and HUD still need wider in-game testing.
+
 ## 1.1.1
 
 - Detailed diagnostics are OFF on load; F8 no longer enables recording.

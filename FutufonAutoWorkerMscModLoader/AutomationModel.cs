@@ -10,7 +10,7 @@ namespace FutufonAutoWorkerMscModLoader
         WaitingStock, WaitingOpenStock, WaitingDelivery, WaitingStacks, Returning, Paused, Done, Error
     }
 
-    // Capture mode/volume at start; language, panel and speed remain live settings.
+    // Volume stays fixed for a run. Mode changes at a complete-package boundary.
     internal sealed class AutomationOptions
     {
         internal readonly AutomationMode Mode;
@@ -21,6 +21,7 @@ namespace FutufonAutoWorkerMscModLoader
 
         internal AutomationOptions(AutomationMode mode, BatchVolume volume) { Mode = mode; Volume = volume; }
         internal bool Matches(AutomationOptions other) { return other != null && Mode == other.Mode && Volume == other.Volume; }
+        internal static AutomationMode NextMode(AutomationMode mode) { return (AutomationMode)(((int)mode + 1) % 4); }
     }
 
     internal sealed class BatchProgress
@@ -61,6 +62,11 @@ namespace FutufonAutoWorkerMscModLoader
     }
 
     internal enum ShiftNotice { None, Lunch, EndOfShift }
+
+    internal static class CartonLayout
+    {
+        internal static int LowerRows(int total) { return Math.Max(0, total / 4 - 1); }
+    }
 
     // Read-only reminders. A clock rollback/new day rearms them; muted events stay muted.
     internal sealed class ShiftReminders

@@ -15,7 +15,7 @@ namespace FutufonAutoWorkerMscModLoader
         public override string ID => "FutufonAutoWorker";
         public override string Name => "Futufon AutoWorker";
         public override string Author => "2Baikal";
-        public override string Version => "1.1.1";
+        public override string Version => "1.2.0";
         public override string Description => WorkerText.Pick(Russian,
             "Автосборка на заводе: четыре режима, 44 коробки или палета, мягкая пауза и компактная панель.",
             "Factory assembly: four modes, 44 packages or one pallet, soft pause and a compact HUD.");
@@ -38,7 +38,7 @@ namespace FutufonAutoWorkerMscModLoader
         private SettingsSliderInt _mode, _volume;
         private SettingsDropDownList _language;
         private SettingsCheckBox _showPanel, _shiftNotifications;
-        private SettingsKeybind _panelKey;
+        private SettingsKeybind _panelKey, _modeKey;
         private SettingsText _settingsHelp;
         private bool _loaded;
         private SessionLogger _logger;
@@ -74,7 +74,7 @@ namespace FutufonAutoWorkerMscModLoader
         private void Mod_Settings()
         {
             _language = Settings.AddDropDownList("aw_language", "Язык / Language", new[] { "Русский", "English" }, 0, UpdateSettingsHelp);
-            _mode = Settings.AddSlider("aw_mode", "Режим / Automation mode", 0, 3, 0, UpdateSettingsHelp, new[]
+            _mode = Settings.AddSlider("aw_mode", "Режим / Automation mode", 0, 3, 0, ModeSettingChanged, new[]
             {
                 "1: Полный цикл / Full cycle", "2: Переноска вручную / Manual delivery",
                 "3: Стопки коробок / Loose packages", "4: Компоненты вручную / Manual supplies"
@@ -86,13 +86,20 @@ namespace FutufonAutoWorkerMscModLoader
             _shiftNotifications = Settings.AddCheckBox("aw_shift_notices", "Обед и конец смены / Shift notifications", true);
             _toggleKey = Keybind.Add("aw_toggle", "Старт / мягкая пауза — Start / soft pause", KeyCode.F8);
             _panelKey = Keybind.Add("aw_panel", "Показать / скрыть панель — Toggle HUD", KeyCode.F6);
-            _snapshotKey = Keybind.Add("aw_snapshot", "Снимок игровых состояний / Factory snapshot", KeyCode.F9);
-            _recordKey = Keybind.Add("aw_record", "Запись диагностики / Diagnostic recording", KeyCode.F7);
+            _modeKey = Keybind.Add("aw_next_mode", "Следующий режим / Next automation mode", KeyCode.None);
+            // New IDs also remove the previous version's saved F7/F9 defaults.
+            _snapshotKey = Keybind.Add("aw_snapshot_optional", "Снимок игровых состояний / Factory snapshot", KeyCode.None);
+            _recordKey = Keybind.Add("aw_record_optional", "Запись диагностики / Diagnostic recording", KeyCode.None);
             _settingsHelp = Settings.AddText("");
             UpdateSettingsHelp();
         }
 
         private bool Russian { get { return _language == null || _language.GetSelectedItemIndex() == 0; } }
+        private void ModeSettingChanged()
+        {
+            UpdateSettingsHelp();
+            if (_demo != null && _demo.CanResume) _demo.RequestMode(CurrentOptions().Mode);
+        }
         private AutomationOptions CurrentOptions()
         {
             return new AutomationOptions((AutomationMode)(_mode == null ? 0 : Mathf.Clamp(_mode.GetValue(), 0, 3)),
@@ -119,8 +126,8 @@ namespace FutufonAutoWorkerMscModLoader
                         "Automatic restocking, assembly, packing 44 packages and pallet delivery."); break;
             }
             _settingsHelp.SetValue(description + "\n" + WorkerText.Pick(Russian,
-                "Объём «Палета»: столько коробок, сколько свободных мест на ближайшей палете (до 4 × 44).\nF8 — закончить текущую маленькую коробку и сделать паузу; F8 — продолжить.\nРежим и объём применяются к следующему запуску; язык и скорость меняются сразу.",
-                "Pallet volume: as many cartons as free slots on the nearest pallet (up to 4 × 44).\nF8 finishes the current small box and pauses; F8 resumes.\nMode and volume apply to the next run; language and speed change immediately."));
+                "Объём «Палета»: до 4 × 44, по свободным местам ближайшей палеты.\nСмена режима — после текущей маленькой коробки; готовые коробки и прогресс сохраняются.\nКлавишу смены режима можно назначить в разделе клавиш. Диагностика по умолчанию без клавиш.\nОбъём применяется к следующему запуску; язык и скорость меняются сразу.",
+                "Pallet volume: up to 4 × 44, based on free slots on the nearest pallet.\nMode changes after the current small package; finished boxes and progress are retained.\nAssign a mode key in keybindings. Diagnostics have no default keys.\nVolume applies to the next run; language and speed change immediately."));
         }
 
         private void Mod_OnLoad()
@@ -133,7 +140,7 @@ namespace FutufonAutoWorkerMscModLoader
             OpenSessionLog();
             Log("Loaded v" + Version + " for My Winter Car.");
             Log("DLL: " + GetType().Assembly.Location);
-            Log("F8 start/resume/soft pause; F6 HUD; F7 detailed recording; F9 snapshot to file. Detailed recording OFF.");
+            Log("Start/resume/soft pause and HUD keys are configurable. Mode and diagnostic keys are unassigned by default. Detailed recording OFF.");
             Log("Work speed: " + WorkSpeedPercent() + "% (100% = original pace).");
             Log("Session log: " + (_sessionPath ?? "output_log.txt only"));
         }
@@ -152,6 +159,7 @@ namespace FutufonAutoWorkerMscModLoader
             _lastSnapshots.Clear();
             StopWorker(true);
             _workMonitor = null;
+            if (_telemetry != null) _telemetry.Dispose();
             _telemetry = null;
             _phase = WorkerPhase.Ready;
             _noticeUntil = 0f;
@@ -181,6 +189,12 @@ namespace FutufonAutoWorkerMscModLoader
 
             if (_panelKey != null && _panelKey.GetKeybindDown() && _showPanel != null)
                 _showPanel.SetValue(!_showPanel.GetValue());
+
+            if (_modeKey != null && _modeKey.GetKeybindDown() && _mode != null && Time.timeScale > 0f)
+            {
+                _mode.SetValue((int)AutomationOptions.NextMode(CurrentOptions().Mode));
+                ModeSettingChanged();
+            }
 
             if (_recordKey != null && _recordKey.GetKeybindDown())
             {
@@ -362,7 +376,8 @@ namespace FutufonAutoWorkerMscModLoader
             try
             {
                 var options = CurrentOptions();
-                bool resume = _demo != null && _demo.CanResume && _demo.Options.Matches(options) && !_demo.PlayerLeft();
+                bool resume = _demo != null && _demo.CanResume && _demo.Options.Volume == options.Volume && !_demo.PlayerLeft();
+                if (resume) _demo.RequestMode(options.Mode);
                 if (!resume)
                 {
                     _demo = new FactoryDemo(_logger.Write, (phase, detail) => { _phase = phase; _phaseDetail = detail; },
@@ -460,20 +475,27 @@ namespace FutufonAutoWorkerMscModLoader
                 if ((_showPanel == null || _showPanel.GetValue()) &&
                     (_worker != null || (_telemetry != null && _telemetry.NearFactory)))
                 {
-                    float width = Mathf.Min(480f, Screen.width - 20f);
+                    float width = Mathf.Min(530f, Screen.width - 20f);
+                    bool meeting = _telemetry != null && WorkShiftInfo.MeetingDay(_telemetry.Day);
+                    float footerY = meeting ? 240f : 216f;
                     GUI.backgroundColor = new Color(0.04f, 0.04f, 0.04f, 0.92f);
-                    GUI.Box(new Rect(10, 10, width, 188), "");
-                    var mode = _demo == null ? CurrentOptions().Mode : _demo.Options.Mode;
-                    GUI.Label(new Rect(20, 16, width - 20, 22), "AutoWorker " + Version + " | " + WorkerText.Mode(ru, mode), _titleStyle);
+                    GUI.Box(new Rect(10, 10, width, footerY + 24f), "");
+                    var mode = _demo == null || !_demo.CanResume ? CurrentOptions().Mode : _demo.Options.Mode;
+                    string modeText = WorkerText.Mode(ru, mode);
+                    if (_worker != null && mode != CurrentOptions().Mode)
+                        modeText = WorkerText.Pick(ru, "Смена на: ", "Changing to: ") + WorkerText.Mode(ru, CurrentOptions().Mode);
+                    GUI.Label(new Rect(20, 16, width - 20, 22), "AutoWorker " + Version + " | " + modeText, _titleStyle);
                     var progress = _demo == null ? null : _demo.Progress;
                     string counts = progress == null ? "0/44" : progress.TotalPackages + "/" + progress.TargetPackages;
                     if (progress != null && progress.TargetCartons > 1)
-                        counts += " | " + WorkerText.Pick(ru, "Коробки: ", "Cartons: ") + progress.CompletedCartons + "/" + progress.TargetCartons;
+                        counts += " | " + WorkerText.Pick(ru, "Партии: ", "Batches: ") + progress.CompletedCartons + "/" + progress.TargetCartons;
                     GUI.Label(new Rect(20, 40, width - 20, 22), WorkerText.Pick(ru, "Прогресс: ", "Progress: ") + counts +
                         " | " + WorkerText.Pick(ru, "Темп: ", "Speed: ") + WorkSpeedPercent() + "%", _hudStyle);
                     bool pausing = _worker != null && progress != null && progress.PauseRequested;
                     string phase = pausing ? WorkerText.Pick(ru, "Заканчиваю коробку и ставлю на паузу", "Finishing current package, then pausing") :
                         _phase == WorkerPhase.Error ? WorkerText.Error(ru, _lastError) : WorkerText.Phase(ru, _phase, _phaseDetail, mode);
+                    if (_phase == WorkerPhase.Done && _demo != null && _demo.ModeChanged)
+                        phase = WorkerText.Pick(ru, "Готово: выбранный объём выполнен", "Done: selected volume completed");
                     GUI.Label(new Rect(20, 64, width - 20, 22), phase, _hudStyle);
                     if (_telemetry != null)
                     {
@@ -492,10 +514,21 @@ namespace FutufonAutoWorkerMscModLoader
                             (_workMonitor.IdleMinutes.HasValue ? " | " + _workMonitor.IdleMinutes.Value.ToString("F1") : ""), _hudStyle);
                         GUI.color = previous;
                     }
-                    GUI.Label(new Rect(20, 164, width - 20, 22), WorkerText.Pick(ru,
-                        "F8 старт/пауза | F6 панель | F7 диагн: ", "F8 start/pause | F6 HUD | F7 diag: ") +
-                        (_recording ? WorkerText.Pick(ru, "вкл", "ON") : WorkerText.Pick(ru, "выкл", "OFF")) +
-                        WorkerText.Pick(ru, " | F9 снимок", " | F9 snapshot"), _hudStyle);
+                    var shift = _telemetry == null ? null : _telemetry.Shift;
+                    GUI.Label(new Rect(20, 164, width - 20, 22), WorkerText.Pick(ru, "Приход: ", "Clock in: ") +
+                        WorkShiftInfo.Clock(shift == null ? null : shift.StartMinutes) + WorkerText.Pick(ru, " | Уход: ", " | Clock out: ") +
+                        WorkShiftInfo.Clock(shift == null ? null : shift.EndMinutes) +
+                        (shift != null && shift.Active ? WorkerText.Pick(ru, " | Смена идёт", " | On shift") : WorkerText.Pick(ru, " | Последняя смена", " | Last shift")), _hudStyle);
+                    GUI.Label(new Rect(20, 188, width - 20, 22), WorkerText.Pick(ru, "Баланс переработок: ", "Overtime balance: ") +
+                        WorkShiftInfo.Balance(shift == null ? null : shift.OvertimeMinutes), _hudStyle);
+                    if (meeting) GUI.Label(new Rect(20, 212, width - 20, 22),
+                        WorkerText.Pick(ru, "Собрание во вторник в 13:10", "Tuesday meeting at 13:10"), _hudStyle);
+                    string keys = KeyHint(_toggleKey, WorkerText.Pick(ru, "старт/пауза", "start/pause")) + " | " +
+                        KeyHint(_panelKey, WorkerText.Pick(ru, "панель", "HUD"));
+                    if (_modeKey != null && _modeKey.GetKeyValue != KeyCode.None)
+                        keys += " | " + KeyHint(_modeKey, WorkerText.Pick(ru, "режим", "mode"));
+                    if (_recording) keys += WorkerText.Pick(ru, " | Диагн: вкл", " | Diag: ON");
+                    GUI.Label(new Rect(20, footerY, width - 20, 22), keys, _hudStyle);
                 }
                 // Notices remain visible when the user hides the HUD.
                 if (Time.realtimeSinceStartup < _noticeUntil && (_shiftNotifications == null || _shiftNotifications.GetValue()))
@@ -512,6 +545,10 @@ namespace FutufonAutoWorkerMscModLoader
                 GUI.color = previous;
                 GUI.backgroundColor = background;
             }
+        }
+        private static string KeyHint(SettingsKeybind key, string action)
+        {
+            return key == null || key.GetKeyValue == KeyCode.None ? action : key.GetKeybindValue + " " + action;
         }
     }
 }

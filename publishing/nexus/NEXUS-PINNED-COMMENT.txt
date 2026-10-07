@@ -1,0 +1,11 @@
+Version 1.2.0 is available for public testing. The four work modes were previously tested in-game in 1.1.1; this release adds live mode switching, filled-carton layer visuals and more shift information in the HUD.
+
+Especially useful feedback:
+- Switching between automatic packing and loose stacks during a run.
+- Pausing on the last package and resuming.
+- Returning to a partially packed carton after saving and reloading.
+- Clock-in/out times, overtime balance and the Tuesday meeting reminder.
+
+For bugs, please include the mod/game/MSCLoader versions, mode, batch volume, speed, reproduction steps and other factory-related mods. Add a screenshot/video and the relevant log from Mods/AutoWorkerLogs if available.
+
+Please mention successful tests too, including the mode and volume you tried. Thanks for helping test the mod!

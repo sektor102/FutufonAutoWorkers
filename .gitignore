@@ -367,3 +367,17 @@ FutufonAutoWorkerMscModLoader/lib/*.xml
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
+# Local game references and inspection outputs
+**/lib/*.dll
+**/lib/*.xml
+tools/
+diagnostics/
+
+# Release staging; public download archives are kept in dist/
+releases/
+
+# Local Nexus form notes and discarded artwork sources
+publishing/nexus/NEXUS-FIELDS.txt
+publishing/nexus/Export-NexusMedia-v2.ps1
+publishing/nexus/FutufonAutoWorker-cover-v1*
+publishing/nexus/FutufonAutoWorker-cover-v2*

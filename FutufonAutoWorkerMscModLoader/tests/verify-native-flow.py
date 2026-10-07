@@ -71,6 +71,15 @@ assert action(shipping,'Assemble','BoolAllTrue')['storeResult']=='$ContentOK'
 assert action(shipping,'Check contents','DestroyObject')['gameObject']=='$Part'
 assert action(shipping,'Check contents','BoolTest')['isTrue']=='PROCEED'
 assert {a['intVariable'] for name,a in actions(state(shipping,'Reset data')) if name=='SetIntValue' and a['intValue']==0}=={'$Slot','$EmptyPackages','$TotalPackages'}
+# Packing keeps just one visible completed row and moves its parent upward.
+# The mod supplies mesh-only copies for the rows that would otherwise disappear.
+row_step = action(shipping, 'Move level', 'FloatAdd')
+assert row_step['floatVariable'] == '$Pos' and abs(row_step['add'] - 0.04) < 1e-7
+assert action(shipping, 'Insert box', 'IntCompare')['integer2'] == 4
+assert not any(kind == 'CreateObject' for kind, _ in actions(state(shipping, 'Move level')))
+shipping_save = fsm('TriggerPackage', 'Save')
+saved = {a['variableName']:a['setValue'] for kind,a in actions(state(shipping_save,'Load data')) if kind in ('SetFsmInt','SetFsmFloat')}
+assert saved == {'Pos':'$LevelPos','EmptyPackages':'$Empty','TotalPackages':'$Total','Slot':'$Slot'}
 
 def walk(f, entry, values, terminals):
     """Execute the relevant serialized counter/branch actions in the native graph.

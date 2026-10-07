@@ -31,4 +31,16 @@ assert next(numeric_actions(database, "Lunch time", "SetIntValue")) == {"intVari
 assert next(numeric_actions(database, "Home time", "SetBoolValue")) == {"boolVariable": "$Home", "boolValue": True}
 assert "TimeHourF" in [v["name"] for v in fsm("Clock")["variables"]["floatVariables"]]
 assert "AtWork" in [v["name"] for v in fsm("PlayerData")["variables"]["boolVariables"]]
-print("PASS: native factory clock, attendance, lunch at 11, shift finish at 16 and factory notification flags.")
+player = fsm("PlayerData")
+assert {"PunchInMinutes", "PunchOutMinutes", "WorkMinutesDayF", "WorkMinutesOvertimeF"} <= {v["name"] for v in player["variables"]["floatVariables"]}
+assert "DayActive" in {v["name"] for v in player["variables"]["boolVariables"]}
+# Native elapsed minutes are checkout minus check-in. Those saved values recover
+# checkout after reload, while PunchOutMinutes itself is not saved by the game.
+subtract = next(numeric_actions(player, "Time bank F", "FloatOperator"))
+assert subtract == {"float1":"$PunchOutMinutes", "float2":"$PunchInMinutes", "storeResult":"$WorkMinutesDayF"}
+load_vars = {a["loadValue"] for a in numeric_actions(player, "Load game", "LoadFloat")}
+assert {"$PunchInMinutes", "$WorkMinutesDayF", "$WorkMinutesOvertimeF"} <= load_vars
+assert "$PunchOutMinutes" not in load_vars
+tuesday = next(numeric_actions(database, "Tuesday", "IntCompare"))
+assert tuesday == {"integer1":"$GlobalDay", "integer2":2}
+print("PASS: native clock/attendance, lunch at 11, shift finish at 16, Tuesday mapping, punch times, saved last shift and native overtime balance.")

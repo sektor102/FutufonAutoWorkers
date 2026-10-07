@@ -34,7 +34,7 @@ public static class SessionLoggerTests
         Require(file.Count == 1047 && console.Count == 2 && !logger.Detailed, "F9 works while F7 is off without flooding console or enabling recording");
         Require(SessionLogger.ShouldSample("FACTORY", "PlayerData", false) && SessionLogger.ShouldSample("package(Clone)", "Use", false),
             "debug recording must retain factory attendance and assembly data");
-        return "PASS: quiet default, 44-package progress in file, F7 file-only details, 2000 ignored clock ticks and F9 full snapshots without console spam";
+        return "PASS: quiet default, 44-package progress in file, file-only diagnostics, 2000 ignored clock ticks and full snapshots without console spam";
     }
     private static void Require(bool condition, string label) { if (!condition) throw new Exception("FAIL: " + label); }
 }

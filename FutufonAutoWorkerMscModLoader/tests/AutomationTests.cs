@@ -14,7 +14,7 @@ public static class AutomationTests
         Require(stacks.FetchSupplies && !stacks.PackCarton && !stacks.DeliverCarton, "loose packages must not be inserted into cartons");
         Require(!supplies.FetchSupplies && !supplies.PackCarton && !supplies.DeliverCarton, "manual supplies must not be moved or fetched");
         Require(!full.Matches(carry) && !full.Matches(new AutomationOptions(AutomationMode.FullCycle, BatchVolume.FillPallet)),
-            "changing mode or volume must not silently resume an old run");
+            "option comparison distinguishes both mode and volume");
 
         var one = new BatchProgress(1);
         one.AdoptPackedCount(17);

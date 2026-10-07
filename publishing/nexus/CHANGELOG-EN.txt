@@ -1,0 +1,10 @@
+1.2.0 — 8 October 2026
+
+- Diagnostic shortcuts are unassigned by default. Old F7/F9 defaults are not imported.
+- Assignable next-mode hotkey; mode changes apply between complete packages and keep progress, cartons and stacks.
+- Missing lower filled layers in shipping cartons are displayed, including after save loading. Only visual meshes are added; native counters are retained.
+- HUD displays current/last shift clock-in and clock-out times and the native signed overtime balance.
+- Tuesday-only HUD reminder for the 13:10 meeting.
+- HUD key hints reflect assigned bindings.
+
+Public test release. Build and automated checks passed for all 16 mode transitions, mixed outputs, partial-carton continuation, pause/resume, 44/176 limits, shift reconstruction, overtime display and lower-row counts. Physical actions are simulated in scheduler tests. Wider in-game testing of new transitions, visuals and HUD is still needed.

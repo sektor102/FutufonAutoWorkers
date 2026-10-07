@@ -13,11 +13,15 @@ namespace FutufonAutoWorkerMscModLoader
         private readonly Action<string> _log;
         private readonly Action<string> _report, _progress;
         private readonly Action<WorkerPhase, int> _status;
-        internal readonly AutomationOptions Options;
+        internal AutomationOptions Options { get; private set; }
         internal BatchProgress Progress { get; private set; }
         internal bool CanResume { get { return Progress != null && !Progress.Complete && !_failed; } }
         internal bool WaitingForPlayer { get; private set; }
-        private bool _failed, _waitingDelivery;
+        internal bool ModeChanged { get; private set; }
+        private bool _failed, _adoptInitialContents = true;
+        private AutomationMode? _requestedMode;
+        private int _expectedPackedCount;
+        private bool ModeChangeRequested { get { return _requestedMode.HasValue && _requestedMode.Value != Options.Mode; } }
         private readonly Func<float> _paceSeconds;
         private readonly List<HeldBody> _heldBodies = new List<HeldBody>();
         private readonly List<HeldBody> _shippingBodies = new List<HeldBody>();
@@ -58,6 +62,7 @@ namespace FutufonAutoWorkerMscModLoader
         }
 
         internal void RequestPause() { Progress.RequestPause(); }
+        internal void RequestMode(AutomationMode mode) { _requestedMode = mode; }
         internal void MarkFailed() { _failed = true; }
 
         internal bool PlayerLeft()
@@ -105,25 +110,7 @@ namespace FutufonAutoWorkerMscModLoader
             _packageSurface = SurfaceAt(-0.52f, -0.23f);
             foreach (float side in new[] { -0.7f, 0.32f })
                 foreach (float forward in new[] { -0.35f, -0.12f }) SurfaceAt(side, forward);
-            if (Options.PackCarton)
-            {
-                var shippingSource = GameObject.Find("PickBoxes");
-                if (shippingSource == null || Vector3.Distance(shippingSource.transform.position, _origin) > 40f)
-                    throw new InvalidOperationException("Shipping box supply not found nearby.");
-                _shippingSource = GetFsm(shippingSource, "Use");
-                RequireState(_shippingSource, "Check old");
-                _shippingBox = RequiredObject(_shippingSource, "Package");
-                var shippingTrigger = RequiredObject(GetFsm(_shippingBox, "Data"), "Trigger");
-                _shipping = GetFsm(shippingTrigger, "Assembly");
-                RequireState(_shipping, "Assemble");
-                if (CompareLimit(_shipping, "Check full", "TotalPackages") != BatchSize)
-                    throw new InvalidOperationException("Unexpected shipping box capacity. Expected 44.");
-                if (_shippingBox.activeInHierarchy) ValidateShippingCounts();
-                if (!Options.DeliverCarton && _shippingBox.activeInHierarchy &&
-                    RequiredInt(_shipping, "TotalPackages").Value == BatchSize)
-                    throw new InvalidOperationException("Carry the existing full carton to a pallet before starting another run.");
-                _shippingSurface = FindShippingSurface();
-            }
+            if (Options.PackCarton) PrepareShippingResources();
             else PrepareStacks();
 
             int target = 1;
@@ -155,48 +142,57 @@ namespace FutufonAutoWorkerMscModLoader
             {
                 while (!Progress.Complete && !Progress.PauseRequested)
                 {
-                    if (_waitingDelivery)
+                    ApplyRequestedMode();
+                    if (Options.PackCarton && _adoptInitialContents && _shippingBox.activeInHierarchy)
                     {
-                        WaitingForPlayer = true;
-                        while ((_shippingBox.activeInHierarchy || PlayerLeft()) && !Progress.PauseRequested)
-                        {
-                            _status(_shippingBox.activeInHierarchy ? WorkerPhase.WaitingDelivery : WorkerPhase.Returning, 0);
-                            yield return null;
-                        }
-                        WaitingForPlayer = false;
-                        if (Progress.PauseRequested) break;
-                        _waitingDelivery = false;
+                        Progress.AdoptPackedCount(RequiredInt(_shipping, "TotalPackages").Value);
+                        _adoptInitialContents = false;
+                    }
+                    // A pause on the 44th package resumes here before starting another.
+                    if (Progress.CurrentPackages == BatchSize)
+                    {
+                        if (Options.DeliverCarton && _shippingBox.activeInHierarchy &&
+                            RequiredInt(_shipping, "TotalPackages").Value == BatchSize)
+                            yield return DeliverShippingBox();
+                        Progress.FinishCarton();
+                        continue;
                     }
                     if (Options.PackCarton)
                     {
-                        yield return PrepareShippingBox();
-                        Progress.AdoptPackedCount(RequiredInt(_shipping, "TotalPackages").Value);
-                    }
-                    while (Progress.CurrentPackages < BatchSize && !Progress.PauseRequested)
-                    {
-                        if (!Options.PackCarton) yield return WaitForStackSpace();
+                        yield return FinishFullShippingBox();
+                        if (ModeChangeRequested) continue;
                         if (Progress.PauseRequested) break;
-                        yield return EnsureSupplies(); // No parts are issued until all four supplies are ready.
-                        if (Progress.PauseRequested) break;
-                        if (Options.PackCarton && (!_shippingBox.activeInHierarchy ||
-                            RequiredInt(_shipping, "TotalPackages").Value != Progress.CurrentPackages))
-                            throw new InvalidOperationException("Shipping box contents changed during the cycle.");
-                        yield return MakePackage(); // Always finishes the current package, even after F8.
-                        Progress.RecordPackage();
-                        ReleaseBodies();
-                        _progress("CYCLE COMPLETE PACKAGE " + Progress.TotalPackages + "/" + Progress.TargetPackages +
-                            "; mode=" + Options.Mode + "; EmptyPackages=0");
-                        yield return Pace();
+                        if (_shippingBodies.Count == 0 || !_shippingBox.activeInHierarchy)
+                        {
+                            yield return PrepareShippingBox();
+                            _expectedPackedCount = RequiredInt(_shipping, "TotalPackages").Value;
+                        }
+                        _adoptInitialContents = false;
                     }
+                    else yield return WaitForStackSpace();
+                    if (ModeChangeRequested) continue;
                     if (Progress.PauseRequested) break;
-                    if (Options.DeliverCarton) yield return DeliverShippingBox();
-                    else if (Options.PackCarton)
+                    yield return EnsureSupplies(); // No parts are issued until all four supplies are ready.
+                    if (ModeChangeRequested) continue;
+                    if (Progress.PauseRequested) break;
+                    if (Options.PackCarton && (!_shippingBox.activeInHierarchy ||
+                        RequiredInt(_shipping, "TotalPackages").Value != _expectedPackedCount))
+                        throw new InvalidOperationException("Shipping box contents changed during the cycle.");
+                    yield return MakePackage(); // Mode and pause requests wait for this complete package.
+                    _adoptInitialContents = false;
+                    Progress.RecordPackage();
+                    ReleaseBodies();
+                    _progress("CYCLE COMPLETE PACKAGE " + Progress.TotalPackages + "/" + Progress.TargetPackages +
+                        "; mode=" + Options.Mode + "; EmptyPackages=0");
+                    if (Progress.CurrentPackages == BatchSize && !Progress.PauseRequested)
                     {
-                        // Leave the native closed box with its Rigidbody for manual carrying.
-                        ReleaseBodies(_shippingBodies);
-                        _waitingDelivery = Progress.CompletedCartons + 1 < Progress.TargetCartons;
+                        // Manual mode leaves the final carton for the player, without
+                        // waiting for delivery after the requested volume is complete.
+                        if (Options.DeliverCarton && RequiredInt(_shipping, "TotalPackages").Value == BatchSize)
+                            yield return DeliverShippingBox();
+                        Progress.FinishCarton();
                     }
-                    Progress.FinishCarton();
+                    yield return Pace();
                 }
                 _status(Progress.Complete ? WorkerPhase.Done : WorkerPhase.Paused, 0);
                 _report(Progress.Complete ? "CYCLE COMPLETE: selected volume finished; no automatic restart." :
@@ -208,6 +204,58 @@ namespace FutufonAutoWorkerMscModLoader
                 ReleaseBodies();
                 ReleaseBodies(_shippingBodies);
             }
+        }
+
+        private void PrepareShippingResources()
+        {
+            if (_shipping != null) return;
+            var source = GameObject.Find("PickBoxes");
+            if (source == null || Vector3.Distance(source.transform.position, _origin) > 40f)
+                throw new InvalidOperationException("Shipping box supply not found nearby.");
+            _shippingSource = GetFsm(source, "Use");
+            RequireState(_shippingSource, "Check old");
+            _shippingBox = RequiredObject(_shippingSource, "Package");
+            _shipping = GetFsm(RequiredObject(GetFsm(_shippingBox, "Data"), "Trigger"), "Assembly");
+            RequireState(_shipping, "Assemble");
+            if (CompareLimit(_shipping, "Check full", "TotalPackages") != BatchSize)
+                throw new InvalidOperationException("Unexpected shipping box capacity. Expected 44.");
+            if (_shippingBox.activeInHierarchy) ValidateShippingCounts();
+            _shippingSurface = FindShippingSurface();
+        }
+
+        private void ApplyRequestedMode()
+        {
+            if (!ModeChangeRequested) { _requestedMode = null; return; }
+            var next = new AutomationOptions(_requestedMode.Value, Options.Volume);
+            if (next.FetchSupplies && !Options.FetchSupplies)
+                foreach (var supply in _supplies)
+                {
+                    supply.Position = SurfaceAt(supply.Offset, 0.105f);
+                    CheckSupplyFootprint(supply);
+                }
+            if (next.PackCarton) PrepareShippingResources();
+            else if (_stacks.Count == 0) PrepareStacks();
+            if (next.DeliverCarton && _pallet == null) SelectPallet(false);
+            ReleaseBodies(_shippingBodies);
+            _report("CYCLE MODE: " + Options.Mode + " -> " + next.Mode + "; progress=" + Progress.TotalPackages +
+                "/" + Progress.TargetPackages + "; existing cartons and stacks retained.");
+            Options = next;
+            ModeChanged = true;
+            _requestedMode = null;
+        }
+
+        private IEnumerator FinishFullShippingBox()
+        {
+            if (!_shippingBox.activeInHierarchy || RequiredInt(_shipping, "TotalPackages").Value != BatchSize) yield break;
+            if (Options.DeliverCarton) { yield return DeliverShippingBox(); yield break; }
+            ReleaseBodies(_shippingBodies);
+            WaitingForPlayer = true;
+            while ((_shippingBox.activeInHierarchy || PlayerLeft()) && !Progress.PauseRequested && !ModeChangeRequested)
+            {
+                _status(_shippingBox.activeInHierarchy ? WorkerPhase.WaitingDelivery : WorkerPhase.Returning, 0);
+                yield return null;
+            }
+            WaitingForPlayer = false;
         }
 
         private IEnumerator MakePackage()
@@ -261,7 +309,7 @@ namespace FutufonAutoWorkerMscModLoader
             {
                 foreach (var supply in _supplies)
                 {
-                    if (Progress.PauseRequested) yield break;
+                    if (Progress.PauseRequested || ModeChangeRequested) yield break;
                     // Relocate/open only when needed; a completed soft pause can resume the same run.
                     if (!supply.Container.activeInHierarchy || RequiredInt(supply.Use, "Items").Value <= 0 || !SupplyOnTable(supply) ||
                         !SupplyOpen(supply)) yield return PrepareSupply(supply);
@@ -270,7 +318,7 @@ namespace FutufonAutoWorkerMscModLoader
             else
             {
                 WaitingForPlayer = true;
-                while (!Progress.PauseRequested)
+                while (!Progress.PauseRequested && !ModeChangeRequested)
                 {
                     int missing = -1;
                     for (int i = 0; i < _supplies.Length; i++)
@@ -337,7 +385,7 @@ namespace FutufonAutoWorkerMscModLoader
         private IEnumerator WaitForStackSpace()
         {
             WaitingForPlayer = true;
-            while ((AvailableStack() == null || PlayerLeft()) && !Progress.PauseRequested)
+            while ((AvailableStack() == null || PlayerLeft()) && !Progress.PauseRequested && !ModeChangeRequested)
             {
                 _status(AvailableStack() == null ? WorkerPhase.WaitingStacks : WorkerPhase.Returning, 0);
                 yield return null;
@@ -393,6 +441,7 @@ namespace FutufonAutoWorkerMscModLoader
             yield return WaitFor(() => _shipping.ActiveStateName == (before + 1 == BatchSize ? "Close box" : "Check package"),
                 "shipping box settling after insertion");
             _log("CYCLE inserted " + packageId + "; ContentOK=True TotalPackages=" + (before + 1) + " EmptyPackages=0");
+            _expectedPackedCount = before + 1;
         }
 
         private IEnumerator DeliverShippingBox()

@@ -10,8 +10,12 @@ namespace FutufonAutoWorkerMscModLoader
         internal bool NearFactory { get; private set; }
         internal int FreePalletSlots { get; private set; }
         internal int PalletCapacity { get; private set; }
+        internal int? Day { get; private set; }
+        internal readonly WorkShiftInfo Shift = new WorkShiftInfo();
         private readonly PlayMakerFSM[] _sources = new PlayMakerFSM[4];
-        private PlayMakerFSM _clock, _database;
+        private PlayMakerFSM _clock, _database, _playerData, _boxSource;
+        private readonly CartonVisuals _cartonVisuals = new CartonVisuals();
+        private bool _visualWarning;
         private readonly ShiftReminders _reminders = new ShiftReminders();
         private float _nextPoll;
         private readonly Action<ShiftNotice> _notice;
@@ -53,10 +57,39 @@ namespace FutufonAutoWorkerMscModLoader
                 }
             if (_clock == null) _clock = FindFsm("FACTORY", "Clock");
             if (_database == null) _database = FindFsm("FACTORY", "Database");
+            if (_playerData == null) _playerData = FindFsm("FACTORY", "PlayerData");
             var hour = _clock == null ? null : _clock.FsmVariables.FindFsmFloat("TimeHourF");
             var lunch = _database == null ? null : _database.FsmVariables.FindFsmInt("Lunchbreak");
             var home = _database == null ? null : _database.FsmVariables.FindFsmBool("Home");
             var day = FsmVariables.GlobalVariables.FindFsmInt("GlobalDay");
+            Day = day == null ? (int?)null : day.Value;
+            if (_playerData != null && _playerData.ActiveStateName != "Punch in" &&
+                _playerData.ActiveStateName != "Punch out" && _playerData.ActiveStateName != "Load game")
+            {
+                var active = _playerData.FsmVariables.FindFsmBool("DayActive");
+                var start = _playerData.FsmVariables.FindFsmFloat("PunchInMinutes");
+                var duration = _playerData.FsmVariables.FindFsmFloat("WorkMinutesDayF");
+                var overtime = _playerData.FsmVariables.FindFsmFloat("WorkMinutesOvertimeF");
+                if (active != null && start != null && duration != null && overtime != null)
+                    Shift.Observe(active.Value || atWork, start.Value, duration.Value, overtime.Value);
+            }
+            if (NearFactory)
+            {
+                try
+                {
+                    if (_boxSource == null) _boxSource = FindFsm("PickBoxes", "Use");
+                    var boxRef = _boxSource == null ? null : _boxSource.FsmVariables.FindFsmGameObject("Package");
+                    var box = boxRef == null ? null : boxRef.Value;
+                    var data = box == null ? null : FindFsm(box, "Data");
+                    var trigger = data == null ? null : data.FsmVariables.FindFsmGameObject("Trigger");
+                    _cartonVisuals.Poll(box, trigger == null || trigger.Value == null ? null : FindFsm(trigger.Value, "Assembly"));
+                }
+                catch (Exception exception)
+                {
+                    if (!_visualWarning) _log("CARTON VISUALS: " + exception.Message);
+                    _visualWarning = true;
+                }
+            }
             if (hour != null && _clock.Fsm.Active)
             {
                 var notice = _reminders.Observe(day == null ? 0 : day.Value, hour.Value, lunch != null && lunch.Value == 1,
@@ -68,6 +101,7 @@ namespace FutufonAutoWorkerMscModLoader
                 }
             }
         }
+        internal void Dispose() { _cartonVisuals.Dispose(); }
         private static PlayMakerFSM FindFsm(string ownerName, string name)
         {
             var owner = GameObject.Find(ownerName);

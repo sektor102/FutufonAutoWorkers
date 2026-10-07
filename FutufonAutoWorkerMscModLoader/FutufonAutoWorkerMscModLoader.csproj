@@ -62,6 +62,8 @@
     <Compile Include="AutomationModel.cs" />
     <Compile Include="WorkerText.cs" />
     <Compile Include="FactoryTelemetry.cs" />
+    <Compile Include="CartonVisuals.cs" />
+    <Compile Include="WorkShiftInfo.cs" />
     <Compile Include="SessionLogger.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
