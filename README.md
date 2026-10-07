@@ -2,18 +2,18 @@
 
 ![Futufon AutoWorker](publishing/nexus/FutufonAutoWorker-header-v2-1300x372.png)
 
-Version **1.2.0 for MSCLoader** automates factory packaging with four selectable
+Version **1.2.1 for MSCLoader** automates factory packaging with four selectable
 modes, configurable volume and speed, soft pause, live mode switching and a
 Russian/English HUD. The default F8 run assembles 44 complete packages, fills
 a shipping carton, delivers it to a player pallet and stops.
 
-**[Download 1.2.0](dist/FutufonAutoWorker-1.2.0.zip)** ·
+**[Download 1.2.1](dist/FutufonAutoWorker-1.2.1.zip)** ·
 **[Installation and controls](INSTALL.md)** ·
 **[Инструкция на русском](FutufonAutoWorkerMscModLoader/README.md)** ·
 **[Changes](CHANGELOG.md)**
 
 This is a public test release. The four modes in 1.1.1 were tested in-game by
-the user. The new transitions, carton-layer graphics and expanded HUD in 1.2.0
+the user. The new transitions, carton-layer graphics and expanded HUD in 1.2.1
 pass automated checks and still need wider in-game testing.
 
 ## Modes and settings
@@ -44,13 +44,17 @@ Speed is adjustable from 10% to 100%; the default 100% preserves the original pa
 | F8 | Start / soft pause / resume |
 | F6 | Show / hide the HUD |
 | Next mode — assign in MSCLoader keybindings | Cycle 1 → 2 → 3 → 4 → 1 |
+| Batch volume — assign in MSCLoader keybindings | One carton ↔ fill one pallet |
 | Diagnostic recording — unassigned | Toggle detailed file logging |
 | State snapshot — unassigned | Save one full snapshot to file |
 
 All keys can be remapped. Diagnostic keys F7/F9 from the previous release are
 no longer assigned by default, and their old bindings are not imported.
 
-Pause and mode changes finish the current small package before taking effect.
+Mode and volume can be selected before F8 and while paused; the HUD immediately
+shows the choice. Volume changes apply to the next run; current progress remains
+visible while working.
+Pause and mode changes during work finish the current small package before taking effect.
 Mode selection while paused does not start work; press F8 to resume.
 Changes retain batch progress, existing stacks and carton contents. Previously
 stacked packages remain where they were placed; they are not automatically
@@ -62,8 +66,9 @@ while waiting for manual supplies or delivery.
 
 ## HUD and saved cartons
 
-The HUD shows progress, supplies, pallet space, the current task and native
-supervisor status. It also displays clock-in/out times for the current or last
+The HUD shows selected mode/volume, progress, supplies, pallet space, the current
+task and native supervisor status. Accumulated idle time is labelled in game
+minutes. It also displays clock-in/out times for the current or last
 shift, the game's signed overtime balance, and a **Tuesday-only 13:10 meeting**
 reminder. Last-shift times are reconstructed from saved clock-in and duration
 after loading. Optional lunch and shift-end notices appear at 11:00 and 16:00.
@@ -74,6 +79,10 @@ Native contents, collision, mass and delivery accounting remain unchanged.
 
 Automation and stack progress last for the loaded session; after loading a
 save, start a new run. Saved shipping-carton contents can be continued.
+Carton counts are checked before assembly and packing, including manual additions
+while paused. A carton containing 17 complete packages needs only 27 more;
+a full carton needs no new parts. Manually packing this run's own stacked output
+does not count those packages twice.
 
 ## Installation and feedback
 
@@ -111,7 +120,8 @@ goes into Mods.
 
 Checks exercise the actual scheduling iterator with simulated physical actions:
 all 16 mode transitions, mixed outputs, partial/full cartons, pause/resume and
-44/176 limits. They also cover saved shift times, signed overtime, Tuesday
+44/176 limits. New checks cover the actual selection hotkey handler, manual
+additions before start/while paused and own-stack transfers. They also cover saved shift times, signed overtime, Tuesday
 reminders, lower-row counts and quiet default logging. Native-flow scripts
 accept locally extracted game JSON; these inputs are not part of the release.
 

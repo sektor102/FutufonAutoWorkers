@@ -1,5 +1,18 @@
 # Changes
 
+## 1.2.1 — 8 October 2026
+
+- Mode hotkeys work before F8 and while paused; the HUD shows the selected mode.
+- Add an unassigned one-carton/pallet hotkey and a selected-volume HUD line.
+- Include manually inserted complete packages before assembly and packing,
+  including after soft pause; a 17/44 carton needs only 27 new packages.
+- Preserve current-run stack credits when the player packs them manually.
+- Label the accumulated game idle counter with minutes.
+- Regression checks cover actual hotkeys, manual additions, 0/1/17/43/44,
+  own-stack transfers, all 16 mode transitions and 44/176 limits.
+
+Build and automated checks pass. The fixes still need live in-game validation.
+
 ## 1.2.0 — 8 October 2026
 
 - Diagnostic shortcuts are unassigned; previous F7/F9 defaults are not imported.

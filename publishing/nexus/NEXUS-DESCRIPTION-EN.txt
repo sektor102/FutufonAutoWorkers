@@ -1,16 +1,16 @@
 Description
-Futufon AutoWorker automates factory assembly in My Winter Car, with full automation or optional manual work. Version 1.2.0 is a public test release; feedback is welcome.
+Futufon AutoWorker automates factory assembly in My Winter Car, with full automation or optional manual work. Version 1.2.1 is a public test release; feedback is welcome.
 
 Installation instructions
 1. Close the game and copy FutufonAutoWorkerMscModLoader.dll from the archive into your active MSCLoader Mods folder.
 2. Load your save, clock in at the factory and look down at a clear work table.
 3. Choose settings under MSCLoader > Futufon AutoWorker, then press F8.
-F8: start / soft pause / resume. F6: toggle HUD. Assign the mode-switch key in MSCLoader keybindings.
+F8: start / soft pause / resume. F6: toggle HUD. Assign mode and one-carton/pallet keys in MSCLoader keybindings; choose settings before F8.
 
 Main features
 - Four modes: full cycle, manual delivery, loose package stacks, or manual supplies.
 - Batches of 44 packages or up to 176 based on free pallet slots; adjustable speed.
-- Soft pause/resume and hotkey mode switching.
+- Soft pause/resume, mode/volume hotkeys and partial-carton continuation.
 - Russian/English HUD with progress, stock, shift times, overtime balance and reminders.
 
 Requirements

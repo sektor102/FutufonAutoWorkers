@@ -41,6 +41,7 @@ namespace FutufonAutoWorkerMscModLoader
         private Quaternion _rotation;
         private Quaternion _packageRotation;
         private readonly List<PackageStack> _stacks = new List<PackageStack>();
+        private readonly List<GameObject> _unpackedOutput = new List<GameObject>();
         private Vector3 _workSurface;
         private Vector3 _packageSurface;
         private Vector3 _shippingSurface;
@@ -143,11 +144,7 @@ namespace FutufonAutoWorkerMscModLoader
                 while (!Progress.Complete && !Progress.PauseRequested)
                 {
                     ApplyRequestedMode();
-                    if (Options.PackCarton && _adoptInitialContents && _shippingBox.activeInHierarchy)
-                    {
-                        Progress.AdoptPackedCount(RequiredInt(_shipping, "TotalPackages").Value);
-                        _adoptInitialContents = false;
-                    }
+                    if (Options.PackCarton) SynchronizeShippingContents();
                     // A pause on the 44th package resumes here before starting another.
                     if (Progress.CurrentPackages == BatchSize)
                     {
@@ -163,11 +160,9 @@ namespace FutufonAutoWorkerMscModLoader
                         if (ModeChangeRequested) continue;
                         if (Progress.PauseRequested) break;
                         if (_shippingBodies.Count == 0 || !_shippingBox.activeInHierarchy)
-                        {
                             yield return PrepareShippingBox();
-                            _expectedPackedCount = RequiredInt(_shipping, "TotalPackages").Value;
-                        }
-                        _adoptInitialContents = false;
+                        SynchronizeShippingContents();
+                        if (Progress.CurrentPackages == BatchSize) continue;
                     }
                     else yield return WaitForStackSpace();
                     if (ModeChangeRequested) continue;
@@ -175,9 +170,13 @@ namespace FutufonAutoWorkerMscModLoader
                     yield return EnsureSupplies(); // No parts are issued until all four supplies are ready.
                     if (ModeChangeRequested) continue;
                     if (Progress.PauseRequested) break;
-                    if (Options.PackCarton && (!_shippingBox.activeInHierarchy ||
-                        RequiredInt(_shipping, "TotalPackages").Value != _expectedPackedCount))
-                        throw new InvalidOperationException("Shipping box contents changed during the cycle.");
+                    if (Options.PackCarton)
+                    {
+                        if (!_shippingBox.activeInHierarchy)
+                            throw new InvalidOperationException("Shipping box disappeared during the cycle.");
+                        SynchronizeShippingContents();
+                        if (Progress.CurrentPackages == BatchSize || _expectedPackedCount == BatchSize) continue;
+                    }
                     yield return MakePackage(); // Mode and pause requests wait for this complete package.
                     _adoptInitialContents = false;
                     Progress.RecordPackage();
@@ -204,6 +203,48 @@ namespace FutufonAutoWorkerMscModLoader
                 ReleaseBodies();
                 ReleaseBodies(_shippingBodies);
             }
+        }
+
+        private void SynchronizeShippingContents()
+        {
+            if (!_shippingBox.activeInHierarchy) return;
+            ValidateShippingCounts();
+            int packed = RequiredInt(_shipping, "TotalPackages").Value;
+            if (packed < _expectedPackedCount)
+                throw new InvalidOperationException("Shipping box contents decreased unexpectedly.");
+            int added = packed - _expectedPackedCount;
+            int before = Progress.TotalPackages;
+            if (_adoptInitialContents)
+            {
+                Progress.AdoptPackedCount(packed);
+                _adoptInitialContents = false;
+            }
+            else if (added > 0)
+            {
+                // Native packing destroys a small package. Own stacked output already
+                // contributes to this run, including when the player picked it up earlier.
+                int transferred = CountConsumedStackPackages();
+                Progress.IncludeExistingPackages(Math.Max(0, added - transferred));
+            }
+            _expectedPackedCount = packed;
+            if (Progress.TotalPackages != before)
+                _progress("CYCLE EXISTING PACKAGES: carton=" + packed + "/44; progress=" +
+                    Progress.TotalPackages + "/" + Progress.TargetPackages + "; manual contents retained.");
+        }
+
+        private int CountConsumedStackPackages()
+        {
+            int consumed = 0;
+            var inserted = RequiredGameObject(_shipping, "Part").Value;
+            for (int i = _unpackedOutput.Count - 1; i >= 0; i--)
+                // Unity may finish Destroy at the end of this frame, after the
+                // native count already increased. Part identifies that live package.
+                if (_unpackedOutput[i] == null || (inserted != null && _unpackedOutput[i] == inserted))
+                {
+                    consumed++;
+                    _unpackedOutput.RemoveAt(i);
+                }
+            return consumed;
         }
 
         private void PrepareShippingResources()
@@ -403,6 +444,7 @@ namespace FutufonAutoWorkerMscModLoader
                     if (collider.enabled && !collider.isTrigger) surface.y = Mathf.Max(surface.y, collider.bounds.max.y);
             yield return PlaceOnSurface(package, surface);
             stack.Packages.Add(package);
+            _unpackedOutput.Add(package);
             _log("CYCLE STACKED complete package; stack height=" + stack.Packages.Count + "/11");
         }
 
@@ -411,6 +453,7 @@ namespace FutufonAutoWorkerMscModLoader
             _status(WorkerPhase.Preparing, 0);
             if (!_shippingBox.activeInHierarchy)
             {
+                _expectedPackedCount = 0; // The native reusable carton is starting another load.
                 DispatchState(_shippingSource, "Check old");
                 yield return WaitFor(() => _shippingBox.activeInHierarchy && _shipping.Fsm.Active &&
                     _shipping.ActiveStateName == "Check package" && RequiredInt(_shipping, "TotalPackages").Value == 0,
@@ -425,7 +468,7 @@ namespace FutufonAutoWorkerMscModLoader
 
         private IEnumerator PackShippingBox(GameObject package, PlayMakerFSM contents)
         {
-            ValidateShippingCounts();
+            SynchronizeShippingContents();
             int before = RequiredInt(_shipping, "TotalPackages").Value;
             if (!_shippingBox.activeInHierarchy || before >= BatchSize)
                 throw new InvalidOperationException("Shipping box is unavailable or already full.");
@@ -468,6 +511,7 @@ namespace FutufonAutoWorkerMscModLoader
             _report("CYCLE DELIVERED: pallet=" + _pallet.GetInstanceID() + " slot=" + (slotBefore + 1) +
                 " Job.PackagesTotal=" + totalBefore + "->" + (totalBefore + BatchSize) +
                 " Job.PackagesEmpty=" + emptyBefore + " (unchanged)");
+            _expectedPackedCount = 0;
             ReleaseBodies(_shippingBodies);
         }
 

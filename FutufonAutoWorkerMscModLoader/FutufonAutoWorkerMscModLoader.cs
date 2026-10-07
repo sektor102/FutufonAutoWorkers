@@ -15,7 +15,7 @@ namespace FutufonAutoWorkerMscModLoader
         public override string ID => "FutufonAutoWorker";
         public override string Name => "Futufon AutoWorker";
         public override string Author => "2Baikal";
-        public override string Version => "1.2.0";
+        public override string Version => "1.2.1";
         public override string Description => WorkerText.Pick(Russian,
             "Автосборка на заводе: четыре режима, 44 коробки или палета, мягкая пауза и компактная панель.",
             "Factory assembly: four modes, 44 packages or one pallet, soft pause and a compact HUD.");
@@ -38,7 +38,7 @@ namespace FutufonAutoWorkerMscModLoader
         private SettingsSliderInt _mode, _volume;
         private SettingsDropDownList _language;
         private SettingsCheckBox _showPanel, _shiftNotifications;
-        private SettingsKeybind _panelKey, _modeKey;
+        private SettingsKeybind _panelKey, _modeKey, _volumeKey;
         private SettingsText _settingsHelp;
         private bool _loaded;
         private SessionLogger _logger;
@@ -87,6 +87,7 @@ namespace FutufonAutoWorkerMscModLoader
             _toggleKey = Keybind.Add("aw_toggle", "Старт / мягкая пауза — Start / soft pause", KeyCode.F8);
             _panelKey = Keybind.Add("aw_panel", "Показать / скрыть панель — Toggle HUD", KeyCode.F6);
             _modeKey = Keybind.Add("aw_next_mode", "Следующий режим / Next automation mode", KeyCode.None);
+            _volumeKey = Keybind.Add("aw_next_volume", "Одна коробка / палета — Toggle batch volume", KeyCode.None);
             // New IDs also remove the previous version's saved F7/F9 defaults.
             _snapshotKey = Keybind.Add("aw_snapshot_optional", "Снимок игровых состояний / Factory snapshot", KeyCode.None);
             _recordKey = Keybind.Add("aw_record_optional", "Запись диагностики / Diagnostic recording", KeyCode.None);
@@ -126,8 +127,8 @@ namespace FutufonAutoWorkerMscModLoader
                         "Automatic restocking, assembly, packing 44 packages and pallet delivery."); break;
             }
             _settingsHelp.SetValue(description + "\n" + WorkerText.Pick(Russian,
-                "Объём «Палета»: до 4 × 44, по свободным местам ближайшей палеты.\nСмена режима — после текущей маленькой коробки; готовые коробки и прогресс сохраняются.\nКлавишу смены режима можно назначить в разделе клавиш. Диагностика по умолчанию без клавиш.\nОбъём применяется к следующему запуску; язык и скорость меняются сразу.",
-                "Pallet volume: up to 4 × 44, based on free slots on the nearest pallet.\nMode changes after the current small package; finished boxes and progress are retained.\nAssign a mode key in keybindings. Diagnostics have no default keys.\nVolume applies to the next run; language and speed change immediately."));
+                "Объём «Палета»: до 4 × 44, по свободным местам ближайшей палеты.\nРежим можно выбрать до F8; во время работы смена ждёт текущую маленькую коробку.\nКлавиши режима и объёма назначаются в разделе клавиш; выбор сразу виден в панели.\nОбъём применяется к следующему запуску; язык и скорость меняются сразу. Диагностика без клавиш.",
+                "Pallet volume: up to 4 × 44, based on free slots on the nearest pallet.\nChoose the mode before F8; changes while working wait for the current small package.\nAssign mode and volume keys in keybindings; selections appear in the HUD immediately.\nVolume applies to the next run; language and speed change immediately. Diagnostics are unassigned."));
         }
 
         private void Mod_OnLoad()
@@ -140,7 +141,7 @@ namespace FutufonAutoWorkerMscModLoader
             OpenSessionLog();
             Log("Loaded v" + Version + " for My Winter Car.");
             Log("DLL: " + GetType().Assembly.Location);
-            Log("Start/resume/soft pause and HUD keys are configurable. Mode and diagnostic keys are unassigned by default. Detailed recording OFF.");
+            Log("Start/resume/soft pause and HUD keys are configurable. Mode, volume and diagnostic keys are unassigned by default. Detailed recording OFF.");
             Log("Work speed: " + WorkSpeedPercent() + "% (100% = original pace).");
             Log("Session log: " + (_sessionPath ?? "output_log.txt only"));
         }
@@ -174,6 +175,9 @@ namespace FutufonAutoWorkerMscModLoader
                 _telemetry.Poll(_shiftNotifications == null || _shiftNotifications.GetValue(),
                     _workMonitor != null && _workMonitor.AtWork, _worker != null);
 
+            // Choose the next run before F8, including when both keys are pressed this frame.
+            if (Time.timeScale > 0f) UpdateSelectionHotkeys();
+
             if (_toggleKey != null && _toggleKey.GetKeybindDown())
             {
                 if (_worker != null)
@@ -189,12 +193,6 @@ namespace FutufonAutoWorkerMscModLoader
 
             if (_panelKey != null && _panelKey.GetKeybindDown() && _showPanel != null)
                 _showPanel.SetValue(!_showPanel.GetValue());
-
-            if (_modeKey != null && _modeKey.GetKeybindDown() && _mode != null && Time.timeScale > 0f)
-            {
-                _mode.SetValue((int)AutomationOptions.NextMode(CurrentOptions().Mode));
-                ModeSettingChanged();
-            }
 
             if (_recordKey != null && _recordKey.GetKeybindDown())
             {
@@ -233,6 +231,20 @@ namespace FutufonAutoWorkerMscModLoader
             {
                 _nextSample = Time.realtimeSinceStartup + 1f;
                 SampleFactory(false);
+            }
+        }
+
+        private void UpdateSelectionHotkeys()
+        {
+            if (_modeKey != null && _modeKey.GetKeybindDown() && _mode != null)
+            {
+                _mode.SetValue((int)AutomationOptions.NextMode(CurrentOptions().Mode));
+                ModeSettingChanged();
+            }
+            if (_volumeKey != null && _volumeKey.GetKeybindDown() && _volume != null)
+            {
+                _volume.SetValue((int)AutomationOptions.NextVolume(CurrentOptions().Volume));
+                UpdateSettingsHelp();
             }
         }
 
@@ -477,56 +489,61 @@ namespace FutufonAutoWorkerMscModLoader
                 {
                     float width = Mathf.Min(530f, Screen.width - 20f);
                     bool meeting = _telemetry != null && WorkShiftInfo.MeetingDay(_telemetry.Day);
-                    float footerY = meeting ? 240f : 216f;
+                    float footerY = meeting ? 264f : 240f;
                     GUI.backgroundColor = new Color(0.04f, 0.04f, 0.04f, 0.92f);
                     GUI.Box(new Rect(10, 10, width, footerY + 24f), "");
-                    var mode = _demo == null || !_demo.CanResume ? CurrentOptions().Mode : _demo.Options.Mode;
-                    string modeText = WorkerText.Mode(ru, mode);
-                    if (_worker != null && mode != CurrentOptions().Mode)
-                        modeText = WorkerText.Pick(ru, "Смена на: ", "Changing to: ") + WorkerText.Mode(ru, CurrentOptions().Mode);
+                    var selected = CurrentOptions();
+                    var mode = _worker == null ? selected.Mode : _demo.Options.Mode;
+                    string modeText = WorkerText.SelectedMode(ru, selected.Mode, _worker == null ? (AutomationMode?)null : mode);
                     GUI.Label(new Rect(20, 16, width - 20, 22), "AutoWorker " + Version + " | " + modeText, _titleStyle);
-                    var progress = _demo == null ? null : _demo.Progress;
-                    string counts = progress == null ? "0/44" : progress.TotalPackages + "/" + progress.TargetPackages;
+                    bool nextVolume = _demo != null && _demo.Options.Volume != selected.Volume;
+                    GUI.Label(new Rect(20, 40, width - 20, 22), WorkerText.Pick(ru, "Объём: ", "Volume: ") +
+                        WorkerText.Volume(ru, selected.Volume) + (nextVolume ? WorkerText.Pick(ru, " | Следующий запуск", " | Next run") : ""), _hudStyle);
+                    var progress = _demo == null || (_worker == null && nextVolume) ? null : _demo.Progress;
+                    string counts = progress == null ? (selected.Volume == BatchVolume.OneCarton ? "0/44" :
+                        WorkerText.Pick(ru, "0/до 176", "0/up to 176")) : progress.TotalPackages + "/" + progress.TargetPackages;
                     if (progress != null && progress.TargetCartons > 1)
                         counts += " | " + WorkerText.Pick(ru, "Партии: ", "Batches: ") + progress.CompletedCartons + "/" + progress.TargetCartons;
-                    GUI.Label(new Rect(20, 40, width - 20, 22), WorkerText.Pick(ru, "Прогресс: ", "Progress: ") + counts +
+                    GUI.Label(new Rect(20, 64, width - 20, 22), WorkerText.Pick(ru, "Прогресс: ", "Progress: ") + counts +
                         " | " + WorkerText.Pick(ru, "Темп: ", "Speed: ") + WorkSpeedPercent() + "%", _hudStyle);
                     bool pausing = _worker != null && progress != null && progress.PauseRequested;
                     string phase = pausing ? WorkerText.Pick(ru, "Заканчиваю коробку и ставлю на паузу", "Finishing current package, then pausing") :
                         _phase == WorkerPhase.Error ? WorkerText.Error(ru, _lastError) : WorkerText.Phase(ru, _phase, _phaseDetail, mode);
                     if (_phase == WorkerPhase.Done && _demo != null && _demo.ModeChanged)
                         phase = WorkerText.Pick(ru, "Готово: выбранный объём выполнен", "Done: selected volume completed");
-                    GUI.Label(new Rect(20, 64, width - 20, 22), phase, _hudStyle);
+                    GUI.Label(new Rect(20, 88, width - 20, 22), phase, _hudStyle);
                     if (_telemetry != null)
                     {
                         string[] names = ru ? new[] { "Зар", "Инстр", "Лотки", "Упак" } : new[] { "Chargers", "Manuals", "Trays", "Sheets" };
                         var stock = new StringBuilder();
                         for (int i = 0; i < names.Length; i++) stock.Append(i == 0 ? "" : " | ").Append(names[i]).Append(": ").Append(_telemetry.Stock[i]);
-                        GUI.Label(new Rect(20, 88, width - 20, 22), stock.ToString(), _hudStyle);
-                        GUI.Label(new Rect(20, 112, width - 20, 22), WorkerText.Pick(ru, "Свободно на палетах: ", "Free pallet slots: ") +
+                        GUI.Label(new Rect(20, 112, width - 20, 22), stock.ToString(), _hudStyle);
+                        GUI.Label(new Rect(20, 136, width - 20, 22), WorkerText.Pick(ru, "Свободно на палетах: ", "Free pallet slots: ") +
                             _telemetry.FreePalletSlots + "/" + _telemetry.PalletCapacity, _hudStyle);
                     }
                     if (_workMonitor != null)
                     {
                         if (_workMonitor.State == WorkCheckState.Slacking) GUI.color = new Color(1f, 0.4f, 0.3f);
                         else if (_workMonitor.State == WorkCheckState.Working) GUI.color = new Color(0.5f, 1f, 0.5f);
-                        GUI.Label(new Rect(20, 136, width - 20, 22), WorkerText.Supervisor(ru, _workMonitor.State) +
-                            (_workMonitor.IdleMinutes.HasValue ? " | " + _workMonitor.IdleMinutes.Value.ToString("F1") : ""), _hudStyle);
+                        GUI.Label(new Rect(20, 160, width - 20, 22), WorkerText.Supervisor(ru, _workMonitor.State) +
+                            (_workMonitor.IdleMinutes.HasValue ? " | " + WorkerText.IdleCounter(ru, _workMonitor.IdleMinutes.Value) : ""), _hudStyle);
                         GUI.color = previous;
                     }
                     var shift = _telemetry == null ? null : _telemetry.Shift;
-                    GUI.Label(new Rect(20, 164, width - 20, 22), WorkerText.Pick(ru, "Приход: ", "Clock in: ") +
+                    GUI.Label(new Rect(20, 188, width - 20, 22), WorkerText.Pick(ru, "Приход: ", "Clock in: ") +
                         WorkShiftInfo.Clock(shift == null ? null : shift.StartMinutes) + WorkerText.Pick(ru, " | Уход: ", " | Clock out: ") +
                         WorkShiftInfo.Clock(shift == null ? null : shift.EndMinutes) +
                         (shift != null && shift.Active ? WorkerText.Pick(ru, " | Смена идёт", " | On shift") : WorkerText.Pick(ru, " | Последняя смена", " | Last shift")), _hudStyle);
-                    GUI.Label(new Rect(20, 188, width - 20, 22), WorkerText.Pick(ru, "Баланс переработок: ", "Overtime balance: ") +
+                    GUI.Label(new Rect(20, 212, width - 20, 22), WorkerText.Pick(ru, "Баланс переработок: ", "Overtime balance: ") +
                         WorkShiftInfo.Balance(shift == null ? null : shift.OvertimeMinutes), _hudStyle);
-                    if (meeting) GUI.Label(new Rect(20, 212, width - 20, 22),
+                    if (meeting) GUI.Label(new Rect(20, 236, width - 20, 22),
                         WorkerText.Pick(ru, "Собрание во вторник в 13:10", "Tuesday meeting at 13:10"), _hudStyle);
                     string keys = KeyHint(_toggleKey, WorkerText.Pick(ru, "старт/пауза", "start/pause")) + " | " +
                         KeyHint(_panelKey, WorkerText.Pick(ru, "панель", "HUD"));
                     if (_modeKey != null && _modeKey.GetKeyValue != KeyCode.None)
                         keys += " | " + KeyHint(_modeKey, WorkerText.Pick(ru, "режим", "mode"));
+                    if (_volumeKey != null && _volumeKey.GetKeyValue != KeyCode.None)
+                        keys += " | " + KeyHint(_volumeKey, WorkerText.Pick(ru, "объём", "volume"));
                     if (_recording) keys += WorkerText.Pick(ru, " | Диагн: вкл", " | Diag: ON");
                     GUI.Label(new Rect(20, footerY, width - 20, 22), keys, _hudStyle);
                 }

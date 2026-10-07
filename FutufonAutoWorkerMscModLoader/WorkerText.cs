@@ -24,6 +24,19 @@ namespace FutufonAutoWorkerMscModLoader
                 default: return Pick(ru, "вернись к столу", "return to the table");
             }
         }
+        internal static string SelectedMode(bool ru, AutomationMode selected, AutomationMode? running)
+        {
+            return (running.HasValue && running.Value != selected ? Pick(ru, "Смена на: ", "Changing to: ") : "") + Mode(ru, selected);
+        }
+        internal static string Volume(bool ru, BatchVolume volume)
+        {
+            return volume == BatchVolume.OneCarton ? Pick(ru, "Одна коробка (44)", "One carton (44)") :
+                Pick(ru, "Палета (до 176)", "Pallet (up to 176)");
+        }
+        internal static string IdleCounter(bool ru, float minutes)
+        {
+            return Pick(ru, "Простой: ", "Total idle: ") + minutes.ToString("F1") + Pick(ru, " мин", " min");
+        }
         internal static string Phase(bool ru, WorkerPhase phase, int detail, AutomationMode mode)
         {
             switch (phase)

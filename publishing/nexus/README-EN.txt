@@ -1,9 +1,9 @@
-FUTUFON AUTOWORKER 1.2.0
+FUTUFON AUTOWORKER 1.2.1
 For My Winter Car with MSCLoader for My Winter Car.
 Author: 2Baikal. MIT license.
 
 PUBLIC TEST RELEASE
-The four work modes in 1.1.1 were tested in-game by the author. 1.2.0 passes automated scheduling and model checks. The new live mode transitions, lower-layer graphics and expanded HUD still need wider in-game testing.
+The four work modes in 1.1.1 were tested in-game by the author. 1.2.1 passes automated scheduling and model checks. The new live mode transitions, lower-layer graphics and expanded HUD still need wider in-game testing.
 
 INSTALL
 Close the game. Copy Mods/FutufonAutoWorkerMscModLoader.dll from this archive into your active MSCLoader Mods folder. Replace the previous DLL when updating. Install MSCLoader separately:
@@ -26,6 +26,8 @@ CONTROLS AND SETTINGS
 F8: start, soft pause, resume.
 F6: show/hide HUD.
 Next mode: assign a key in MSCLoader keybindings; cycles 1 > 2 > 3 > 4 > 1.
+Batch volume: assign a separate key; switches one carton / pallet for the next run.
+Mode and volume selection work before F8 and while paused; the HUD updates immediately.
 Diagnostics and snapshots: unassigned by default.
 All keys can be remapped.
 Volume: one batch of 44, or a run based on free pallet slots at start, up to 176 packages.
@@ -33,9 +35,11 @@ Speed: 10–100%.
 
 Pause and mode changes finish the current small package first. Selecting a mode while paused does not start the worker. Mixed-mode runs keep old stacks and carton contents where they are; existing stacks are not automatically packed. The total volume remains fixed and can include both stacks and a partial carton.
 Automation/stack progress persists within the game session. After reloading, start a new run; shipping-carton contents saved by the game can be continued.
+Manually inserted complete packages are checked before assembly and packing, including after a pause. If 17 are already inside, only 27 more are made. A full carton needs no new parts. Manually packing this run's own stacked output does not count it twice.
 
 HUD
 Progress, task, supplies, free pallet slots, supervisor status, clock-in/out times and the game's signed overtime balance. Last-shift times are reconstructed from the game's saved clock-in and duration after loading. Overtime changes according to native clock-out and daily accounting.
+Selected mode/volume are visible before start; accumulated game idle time is labelled in minutes.
 Lunch/end-of-shift notifications and a Tuesday-only 13:10 meeting reminder are included.
 Lower filled carton layers are shown using visual-only meshes; native contents and delivery accounting are retained.
 

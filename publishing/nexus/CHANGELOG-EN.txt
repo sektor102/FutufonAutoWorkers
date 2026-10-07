@@ -1,3 +1,12 @@
+1.2.1 — 8 October 2026
+
+- Select modes before F8 and while paused; the HUD shows the choice immediately.
+- Assignable one-carton/pallet key and volume HUD line; changes apply to the next run.
+- Count complete manual contents before assembly/packing and after pause. A 17/44 carton needs 27 new packages; a full carton needs none.
+- Manual transfers from this run's own stacks do not count packages twice.
+- Label accumulated game idle time in minutes.
+- Build and regression checks passed for actual hotkeys, manual contents, paused additions, stack transfers, all 16 transitions and 44/176 limits. In-game validation remains needed.
+
 1.2.0 — 8 October 2026
 
 - Diagnostic shortcuts are unassigned by default. Old F7/F9 defaults are not imported.

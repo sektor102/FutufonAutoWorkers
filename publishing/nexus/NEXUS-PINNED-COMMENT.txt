@@ -1,4 +1,4 @@
-Version 1.2.0 is available for public testing. The four work modes were previously tested in-game in 1.1.1; this release adds live mode switching, filled-carton layer visuals and more shift information in the HUD.
+Version 1.2.1 is available for public testing. The four work modes were previously tested in-game in 1.1.1; this release fixes pre-start mode selection and manual carton counts, adds a volume hotkey and labels idle minutes. Carton-layer visuals and shift information remain included.
 
 Especially useful feedback:
 - Switching between automatic packing and loose stacks during a run.

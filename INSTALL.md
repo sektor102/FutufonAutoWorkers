@@ -1,4 +1,4 @@
-# Futufon AutoWorker 1.2.0
+# Futufon AutoWorker 1.2.1
 
 Requires My Winter Car and
 [MSCLoader for My Winter Car](https://www.nexusmods.com/mywintercar/mods/3).
@@ -7,7 +7,7 @@ Built against MSCLoader 1.4.2 for MWC; other loaders have not been tested.
 1. Close the game.
 2. Copy `Mods/FutufonAutoWorkerMscModLoader.dll` from the archive into your
    active MSCLoader Mods folder, replacing the previous mod DLL when updating.
-3. Restart and load a save. The HUD displays version `1.2.0`.
+3. Restart and load a save. The HUD displays version `1.2.1`.
 4. Clock in at Futufon, stand by a clear work table and look down at the tabletop.
 5. Open **MSCLoader → Futufon AutoWorker**, choose settings and press **F8**.
 
@@ -35,11 +35,14 @@ space for carton modes. Full stacks pause work until packages are removed.
 | F8 | Start / soft pause / resume |
 | F6 | Show / hide HUD |
 | Next automation mode — assign a key | Cycle 1 → 2 → 3 → 4 → 1 |
+| Batch volume — assign a key | One carton ↔ fill one pallet |
 | Diagnostic recording — unassigned | Toggle detailed logging |
 | State snapshot — unassigned | Append one full snapshot |
 
-Assign or change keys in MSCLoader keybindings. Optional diagnostics have new
-setting IDs; previous F7/F9 bindings are not imported. HUD hints use the actual
+Select mode/volume before F8 or while paused; the HUD shows both immediately.
+Volume changes apply to the next run. Assign keys in MSCLoader keybindings.
+Optional diagnostics have separate setting IDs; previous F7/F9 bindings are
+not imported. HUD hints use the actual
 assigned bindings.
 
 Volume is one batch of 44, or the free slots on the initial target pallet,
@@ -59,6 +62,7 @@ A runtime error stops work; unfinished parts may need manual cleanup.
 
 The HUD shows progress, task, supplies, pallet slots and native supervisor status.
 It also shows current/last clock-in/out times, signed overtime balance, and a
+labelled accumulated idle counter in game minutes, plus a
 Tuesday-only meeting reminder for 13:10. Last-shift times are reconstructed from
 the game's saved clock-in and duration after loading.
 
@@ -68,13 +72,16 @@ The shift-end notice is the scheduled time; clock-out shows the actual card even
 
 Stack/run progress is kept within the current loaded session; start a new run
 after reloading. Saved partial shipping-carton contents can be continued.
+Manually inserted complete packages are read before assembly and packing,
+including after a pause: 17 already inside means 27 remaining. Manually packing
+this run's own stacked output does not count it twice.
 Visual-only meshes restore missing lower filled layers without changing counts,
 collision, mass or delivery accounting. The mod does not override pay,
 attendance or supervisor decisions.
 
 ## Feedback and removal
 
-Version 1.2.0 is a public test release. All four modes in 1.1.1 were tested
+Version 1.2.1 is a public test release. All four modes in 1.1.1 were tested
 in-game by the user; the new transitions, carton graphics and expanded HUD need
 wider in-game testing. Automated scheduler/model checks pass. Compatibility with
 other factory-job mods is not fully tested.

@@ -22,6 +22,7 @@ namespace FutufonAutoWorkerMscModLoader
         internal AutomationOptions(AutomationMode mode, BatchVolume volume) { Mode = mode; Volume = volume; }
         internal bool Matches(AutomationOptions other) { return other != null && Mode == other.Mode && Volume == other.Volume; }
         internal static AutomationMode NextMode(AutomationMode mode) { return (AutomationMode)(((int)mode + 1) % 4); }
+        internal static BatchVolume NextVolume(BatchVolume volume) { return volume == BatchVolume.OneCarton ? BatchVolume.FillPallet : BatchVolume.OneCarton; }
     }
 
     internal sealed class BatchProgress
@@ -50,6 +51,12 @@ namespace FutufonAutoWorkerMscModLoader
         {
             if (Complete || CurrentPackages == PackagesPerCarton) throw new InvalidOperationException("Batch already full.");
             CurrentPackages++;
+        }
+        internal void IncludeExistingPackages(int count)
+        {
+            if (count < 0 || Complete) throw new InvalidOperationException("Invalid manual package count.");
+            // Manual work can finish the selected batch, but must not expand its quota.
+            CurrentPackages += Math.Min(count, PackagesPerCarton - CurrentPackages);
         }
         internal void FinishCarton()
         {
