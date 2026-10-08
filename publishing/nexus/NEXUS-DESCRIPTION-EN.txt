@@ -1,17 +1,22 @@
 Description
-Futufon AutoWorker automates factory assembly in My Winter Car, with full automation or optional manual work. Version 1.2.1 is a public test release; feedback is welcome.
+Futufon AutoWorker does the factory packaging work for you: press F8 at the workbench and Full Cycle mode automatically collects/refills supplies, assembles complete charger packages, fills a shipping carton and delivers it to a pallet. It uses the game's own items and assembly logic; normal production targets, attendance and pay rules still apply.
 
 Installation instructions
 1. Close the game and copy FutufonAutoWorkerMscModLoader.dll from the archive into your active MSCLoader Mods folder.
-2. Load your save, clock in at the factory and look down at a clear work table.
-3. Choose settings under MSCLoader > Futufon AutoWorker, then press F8.
-F8: start / soft pause / resume. F6: toggle HUD. Assign mode and one-carton/pallet keys in MSCLoader keybindings; choose settings before F8.
+2. Load your save and choose the mode, batch size and speed under MSCLoader > Futufon AutoWorker.
+3. Clock in at Futufon, stand at a clear workbench, look down at the tabletop and press F8. Leave space beside the table for the shipping carton and a free slot on a nearby pallet.
+Stay by the workbench during assembly. The mod stops at the selected batch limit; walking away requests a pause.
+F8: start / soft pause / resume (finishes the current small package). F6: toggle HUD. Assign the mode-switch key in MSCLoader keybindings.
 
 Main features
-- Four modes: full cycle, manual delivery, loose package stacks, or manual supplies.
-- Batches of 44 packages or up to 176 based on free pallet slots; adjustable speed.
-- Soft pause/resume, mode/volume hotkeys and partial-carton continuation.
-- Russian/English HUD with progress, stock, shift times, overtime balance and reminders.
+- Full Cycle: automatic supplies, assembly, packing and pallet delivery.
+- Manual Delivery: the mod fills the carton; you carry it to the pallet.
+- Loose Packages: automatic supplies and assembly; you pack and deliver the finished packages.
+- Manual Supplies: you bring/open the materials; the mod assembles packages; you pack and deliver them.
+- One carton holds 44 small packages. Fill Pallet produces up to four cartons/176 packages, depending on free slots.
+- Adjustable speed and soft pause/resume.
+- Russian/English HUD: progress, stock, shift times, overtime balance and reminders.
+Public test release; feedback and bug reports are welcome.
 
 Requirements
 My Winter Car and MSCLoader for My Winter Car.

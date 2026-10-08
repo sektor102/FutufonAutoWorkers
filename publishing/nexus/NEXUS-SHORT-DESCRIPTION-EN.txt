@@ -1,0 +1,1 @@
+Clock in at Futufon, stand at a workbench and press F8. The mod automatically collects supplies, assembles charger packages, fills shipping cartons and delivers them to a pallet in Full Cycle mode. Four modes let you keep some tasks manual. Requires MSCLoader.
