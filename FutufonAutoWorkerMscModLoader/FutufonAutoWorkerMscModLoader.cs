@@ -15,7 +15,7 @@ namespace FutufonAutoWorkerMscModLoader
         public override string ID => "FutufonAutoWorker";
         public override string Name => "Futufon AutoWorker";
         public override string Author => "2Baikal";
-        public override string Version => "1.2.2";
+        public override string Version => "1.2.3";
         public override string Description => WorkerText.Pick(Russian,
             "Автосборка на заводе: четыре режима, 44 коробки или палета, мягкая пауза и компактная панель.",
             "Factory assembly: four modes, 44 packages or one pallet, soft pause and a compact HUD.");
@@ -37,15 +37,15 @@ namespace FutufonAutoWorkerMscModLoader
         private SettingsSliderInt _workSpeed;
         private SettingsSliderInt _mode, _volume;
         private SettingsDropDownList _language;
-        private SettingsCheckBox _showPanel, _shiftNotifications;
+        private SettingsCheckBox _showPanel, _shiftNotifications, _fileLogging;
         private SettingsKeybind _panelKey, _modeKey, _volumeKey;
         private SettingsText _settingsHelp;
+        private bool? _menuRussian;
         private bool _loaded;
         private SessionLogger _logger;
         private bool _recording
         {
-            get { return _logger != null && _logger.Detailed; }
-            set { if (_logger != null) _logger.Detailed = value; }
+            get { return _logger != null && _logger.FileEnabled && _logger.Detailed; }
         }
         private float _nextSample;
         private DemoStepper _worker;
@@ -73,29 +73,53 @@ namespace FutufonAutoWorkerMscModLoader
 
         private void Mod_Settings()
         {
-            _language = Settings.AddDropDownList("aw_language", "Язык / Language", new[] { "Русский", "English" }, 0, UpdateSettingsHelp);
-            _mode = Settings.AddSlider("aw_mode", "Режим / Automation mode", 0, 3, 0, ModeSettingChanged, new[]
+            _language = Settings.AddDropDownList("aw_language", "Язык", new[] { "Русский", "Английский" }, 0, UpdateSettingsLanguage);
+            _mode = Settings.AddSlider("aw_mode", "Режим", 0, 3, 0, ModeSettingChanged, new[]
             {
-                "1: Полный цикл / Full cycle", "2: Переноска вручную / Manual delivery",
-                "3: Стопки коробок / Loose packages", "4: Компоненты вручную / Manual supplies"
+                "1: Полный цикл", "2: Переноска вручную",
+                "3: Стопки коробок", "4: Компоненты вручную"
             });
-            _volume = Settings.AddSlider("aw_volume", "Объём / Volume", 0, 1, 0, UpdateSettingsHelp,
-                new[] { "44: одна коробка / One carton", "Палета / Fill one pallet" });
-            _workSpeed = Settings.AddSlider("aw_speed", "Скорость (%) / Speed (%)", 10, 100, 100);
-            _showPanel = Settings.AddCheckBox("aw_hud", "Панель / Compact HUD", true);
-            _shiftNotifications = Settings.AddCheckBox("aw_shift_notices", "Обед и конец смены / Shift notifications", true);
-            _toggleKey = Keybind.Add("aw_toggle", "Старт / мягкая пауза — Start / soft pause", KeyCode.F8);
-            _panelKey = Keybind.Add("aw_panel", "Показать / скрыть панель — Toggle HUD", KeyCode.F6);
-            _modeKey = Keybind.Add("aw_next_mode", "Следующий режим / Next automation mode", KeyCode.None);
-            _volumeKey = Keybind.Add("aw_next_volume", "Одна коробка / палета — Toggle batch volume", KeyCode.None);
+            _volume = Settings.AddSlider("aw_volume", "Объём", 0, 1, 0, UpdateSettingsHelp,
+                new[] { "44: одна коробка", "Палета" });
+            _workSpeed = Settings.AddSlider("aw_speed", "Скорость (%)", 10, 100, 100);
+            _showPanel = Settings.AddCheckBox("aw_hud", "Панель", true);
+            _shiftNotifications = Settings.AddCheckBox("aw_shift_notices", "Обед и конец смены", true);
+            _fileLogging = Settings.AddCheckBox("aw_file_logging", "Записывать логи (диагностика)", false, LoggingSettingChanged);
+            _toggleKey = Keybind.Add("aw_toggle", "Старт / мягкая пауза", KeyCode.F8);
+            _panelKey = Keybind.Add("aw_panel", "Показать / скрыть панель", KeyCode.F6);
+            _modeKey = Keybind.Add("aw_next_mode", "Следующий режим", KeyCode.None);
+            _volumeKey = Keybind.Add("aw_next_volume", "Одна коробка / палета", KeyCode.None);
             // New IDs also remove the previous version's saved F7/F9 defaults.
-            _snapshotKey = Keybind.Add("aw_snapshot_optional", "Снимок игровых состояний / Factory snapshot", KeyCode.None);
-            _recordKey = Keybind.Add("aw_record_optional", "Запись диагностики / Diagnostic recording", KeyCode.None);
+            _snapshotKey = Keybind.Add("aw_snapshot_optional", "Снимок игровых состояний", KeyCode.None);
+            _recordKey = Keybind.Add("aw_record_optional", "Записывать логи", KeyCode.None);
             _settingsHelp = Settings.AddText("");
-            UpdateSettingsHelp();
+            UpdateSettingsLanguage();
         }
 
         private bool Russian { get { return _language == null || _language.GetSelectedItemIndex() == 0; } }
+        private void UpdateSettingsLanguage()
+        {
+            bool ru = Russian;
+            SettingsLocalization.Name(_language, WorkerText.Pick(ru, "Язык", "Language"));
+            SettingsLocalization.Dropdown(_language, ru ? new[] { "Русский", "Английский" } : new[] { "Russian", "English" });
+            SettingsLocalization.Name(_mode, WorkerText.Pick(ru, "Режим", "Automation mode"));
+            SettingsLocalization.Slider(_mode, ru ? new[] { "1: Полный цикл", "2: Переноска вручную", "3: Стопки коробок", "4: Компоненты вручную" } :
+                new[] { "1: Full cycle", "2: Manual delivery", "3: Loose packages", "4: Manual supplies" });
+            SettingsLocalization.Name(_volume, WorkerText.Pick(ru, "Объём", "Volume"));
+            SettingsLocalization.Slider(_volume, ru ? new[] { "44: одна коробка", "Палета" } : new[] { "44: one carton", "Fill one pallet" });
+            SettingsLocalization.Name(_workSpeed, WorkerText.Pick(ru, "Скорость (%)", "Speed (%)"));
+            SettingsLocalization.Name(_showPanel, WorkerText.Pick(ru, "Панель", "Compact HUD"));
+            SettingsLocalization.Name(_shiftNotifications, WorkerText.Pick(ru, "Обед и конец смены", "Shift notifications"));
+            SettingsLocalization.Name(_fileLogging, WorkerText.Pick(ru, "Записывать логи (диагностика)", "Write logs (diagnostics)"));
+            SettingsLocalization.Name(_toggleKey, WorkerText.Pick(ru, "Старт / мягкая пауза", "Start / soft pause"));
+            SettingsLocalization.Name(_panelKey, WorkerText.Pick(ru, "Показать / скрыть панель", "Toggle HUD"));
+            SettingsLocalization.Name(_modeKey, WorkerText.Pick(ru, "Следующий режим", "Next automation mode"));
+            SettingsLocalization.Name(_volumeKey, WorkerText.Pick(ru, "Одна коробка / палета", "Toggle batch volume"));
+            SettingsLocalization.Name(_snapshotKey, WorkerText.Pick(ru, "Снимок игровых состояний", "Factory snapshot"));
+            SettingsLocalization.Name(_recordKey, WorkerText.Pick(ru, "Записывать логи", "Write logs"));
+            _menuRussian = ru;
+            UpdateSettingsHelp();
+        }
         private void ModeSettingChanged()
         {
             UpdateSettingsHelp();
@@ -108,6 +132,8 @@ namespace FutufonAutoWorkerMscModLoader
         }
         private void UpdateSettingsHelp()
         {
+            SettingsLocalization.SliderCaption(_mode);
+            SettingsLocalization.SliderCaption(_volume);
             if (_settingsHelp == null) return;
             var options = CurrentOptions();
             string description;
@@ -127,8 +153,28 @@ namespace FutufonAutoWorkerMscModLoader
                         "Automatic restocking, assembly, packing 44 packages and pallet delivery."); break;
             }
             _settingsHelp.SetValue(description + "\n" + WorkerText.Pick(Russian,
-                "Объём «Палета»: до 4 × 44, по свободным местам ближайшей палеты.\nРежим можно выбрать до F8; во время работы смена ждёт текущую маленькую коробку.\nКлавиши режима и объёма назначаются в разделе клавиш; выбор сразу виден в панели.\nОбъём применяется к следующему запуску; язык и скорость меняются сразу. Диагностика без клавиш.",
-                "Pallet volume: up to 4 × 44, based on free slots on the nearest pallet.\nChoose the mode before F8; changes while working wait for the current small package.\nAssign mode and volume keys in keybindings; selections appear in the HUD immediately.\nVolume applies to the next run; language and speed change immediately. Diagnostics are unassigned."));
+                "Объём «Палета»: до 4 × 44, по свободным местам ближайшей палеты.\nРежим можно выбрать до F8; во время работы смена ждёт текущую маленькую коробку.\nКлавиши режима и объёма назначаются в разделе клавиш; выбор сразу виден в панели.\nОбъём применяется к следующему запуску; язык и скорость меняются сразу.\nЛоги по умолчанию выключены. Для диагностики включи «Записывать логи»; после проверки выключи.",
+                "Pallet volume: up to 4 × 44, based on free slots on the nearest pallet.\nChoose the mode before F8; changes while working wait for the current small package.\nAssign mode and volume keys in keybindings; selections appear in the HUD immediately.\nVolume applies to the next run; language and speed change immediately.\nLogs are off by default. Enable Write logs for diagnostics, then turn it off after testing."));
+        }
+
+        private void LoggingSettingChanged()
+        {
+            bool enabled = _loaded && _fileLogging != null && _fileLogging.GetValue();
+            if (_logger == null || (_logger.FileEnabled == enabled && _logger.Detailed == enabled)) return;
+            _logger.FileEnabled = enabled;
+            _logger.Detailed = enabled;
+            _lastSnapshots.Clear();
+            _nextSample = 0f;
+            if (enabled)
+            {
+                OpenSessionLog();
+                Log("Diagnostic logging enabled. Session log: " + (_sessionPath ?? "unavailable"));
+            }
+            else
+            {
+                CloseSessionLog();
+                Log("Diagnostic logging disabled.");
+            }
         }
 
         private void Mod_OnLoad()
@@ -136,14 +182,14 @@ namespace FutufonAutoWorkerMscModLoader
             ResetDiagnostics();
             _logger = new SessionLogger(WriteSessionLog, message => ModConsole.Print("[AutoWorker] " + message));
             _loaded = true;
+            UpdateSettingsLanguage();
             _workMonitor = new FactoryWorkMonitor(message => _logger.Write(message, LogKind.Progress));
             _telemetry = new FactoryTelemetry(notice => { _notice = notice; _noticeUntil = Time.realtimeSinceStartup + 15f; }, Log);
-            OpenSessionLog();
+            LoggingSettingChanged();
             Log("Loaded v" + Version + " for My Winter Car.");
             Log("DLL: " + GetType().Assembly.Location);
-            Log("Start/resume/soft pause and HUD keys are configurable. Mode, volume and diagnostic keys are unassigned by default. Detailed recording OFF.");
+            Log("Start/resume/soft pause and HUD keys are configurable. Logging is opt-in through mod settings.");
             Log("Work speed: " + WorkSpeedPercent() + "% (100% = original pace).");
-            Log("Session log: " + (_sessionPath ?? "output_log.txt only"));
         }
 
         private void Mod_OnMenuLoad()
@@ -155,7 +201,8 @@ namespace FutufonAutoWorkerMscModLoader
 
         private void ResetDiagnostics()
         {
-            _recording = false;
+            if (_logger != null) { _logger.FileEnabled = false; _logger.Detailed = false; }
+            CloseSessionLog();
             _nextSample = 0f;
             _lastSnapshots.Clear();
             StopWorker(true);
@@ -194,12 +241,11 @@ namespace FutufonAutoWorkerMscModLoader
             if (_panelKey != null && _panelKey.GetKeybindDown() && _showPanel != null)
                 _showPanel.SetValue(!_showPanel.GetValue());
 
-            if (_recordKey != null && _recordKey.GetKeybindDown())
+            if (_recordKey != null && _recordKey.GetKeybindDown() && _fileLogging != null)
             {
-                _recording = !_recording;
-                _lastSnapshots.Clear();
-                _nextSample = 0f;
-                Log("Recording " + (_recording ? "ON" : "OFF"));
+                _fileLogging.SetValue(!_fileLogging.GetValue());
+                LoggingSettingChanged();
+                SettingsLocalization.Checkbox(_fileLogging);
             }
 
             if (_snapshotKey != null && _snapshotKey.GetKeybindDown())
@@ -250,6 +296,7 @@ namespace FutufonAutoWorkerMscModLoader
 
         private void SampleFactory(bool includeGraph)
         {
+            if (_logger == null || !_logger.FileEnabled) return;
             Action<string> write = message => _logger.Write(message, includeGraph ? LogKind.Snapshot : LogKind.Detail);
             var fsms = UnityEngine.Object.FindObjectsOfType(typeof(PlayMakerFSM));
             int count = 0;
@@ -429,6 +476,7 @@ namespace FutufonAutoWorkerMscModLoader
         private void OpenSessionLog()
         {
             CloseSessionLog();
+            if (_logger == null || !_logger.FileEnabled) return;
             try
             {
                 string directory = Path.Combine(Path.GetDirectoryName(GetType().Assembly.Location), "AutoWorkerLogs");
@@ -451,7 +499,7 @@ namespace FutufonAutoWorkerMscModLoader
 
         private void WriteSessionLog(string message)
         {
-            if (_sessionLog == null) return;
+            if (_logger == null || !_logger.FileEnabled || _sessionLog == null) return;
             try { _sessionLog.WriteLine(DateTime.Now.ToString("HH:mm:ss.fff") + " [AutoWorker] " + message); }
             catch (Exception exception)
             {
@@ -468,10 +516,12 @@ namespace FutufonAutoWorkerMscModLoader
                 catch (IOException) { }
                 _sessionLog = null;
             }
+            _sessionPath = null;
         }
 
         private void Mod_OnGUI()
         {
+            if (_menuRussian != Russian) UpdateSettingsLanguage();
             if (!_loaded) return;
             if (_hudStyle == null)
             {

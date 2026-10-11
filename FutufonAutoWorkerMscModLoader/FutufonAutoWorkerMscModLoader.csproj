@@ -66,6 +66,7 @@
     <Compile Include="CartonVisuals.cs" />
     <Compile Include="WorkShiftInfo.cs" />
     <Compile Include="SessionLogger.cs" />
+    <Compile Include="SettingsLocalization.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />

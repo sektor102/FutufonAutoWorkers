@@ -4,17 +4,18 @@ namespace FutufonAutoWorkerMscModLoader
 {
     internal enum LogKind { Event, Progress, Detail, Snapshot }
 
-    // Console output is for events. Progress/snapshots stay in the session file.
+    // Console output is for events. File output requires explicit opt-in.
     internal sealed class SessionLogger
     {
         private readonly Action<string> _file, _console;
+        internal bool FileEnabled { get; set; }
         internal bool Detailed { get; set; }
         internal SessionLogger(Action<string> file, Action<string> console) { _file = file; _console = console; }
         internal void Write(string message, LogKind kind)
         {
-            if (kind == LogKind.Detail && !Detailed) return;
-            _file(message);
             if (kind == LogKind.Event) _console(message);
+            if (!FileEnabled || (kind == LogKind.Detail && !Detailed)) return;
+            _file(message);
         }
         internal static bool ShouldSample(string owner, string fsmName, bool fullSnapshot)
         {

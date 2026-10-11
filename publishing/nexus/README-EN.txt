@@ -1,9 +1,9 @@
-FUTUFON AUTOWORKER 1.2.2
+FUTUFON AUTOWORKER 1.2.3
 For My Winter Car with MSCLoader for My Winter Car.
 Author: 2Baikal. MIT license.
 
 PUBLIC TEST RELEASE
-The four work modes in 1.1.1 were tested in-game by the author. 1.2.2 passes automated scheduling, model and controlled geometry checks. The new floor placement, left-opening assembly lid, live mode transitions, lower-layer graphics and expanded HUD still need wider in-game testing.
+The four work modes in 1.1.1 were tested in-game by the author. 1.2.3 passes automated scheduling, model and controlled geometry checks. The new floor placement, left-opening assembly lid, live mode transitions, lower-layer graphics and expanded HUD still need wider in-game testing.
 
 INSTALL
 Close the game. Copy Mods/FutufonAutoWorkerMscModLoader.dll from this archive into your active MSCLoader Mods folder. Replace the previous DLL when updating. Install MSCLoader separately:
@@ -12,7 +12,7 @@ Built against MSCLoader 1.4.2 for My Winter Car. Other loaders have not been tes
 
 START
 Clock in at the factory, stand by a clear work table and look down at the tabletop. Choose settings under MSCLoader > Futufon AutoWorker, then press F8.
-The default interface language is Russian. Select English in the Language setting.
+The default interface language is Russian. Select English in the Language setting. All mod settings, option labels, help and keybinding names follow that language without bilingual labels. Values and assigned keys are retained.
 
 MODES
 1. Full cycle: automatic supplies, assembly, carton packing and pallet delivery.
@@ -28,7 +28,7 @@ F6: show/hide HUD.
 Next mode: assign a key in MSCLoader keybindings; cycles 1 > 2 > 3 > 4 > 1.
 Batch volume: assign a separate key; switches one carton / pallet for the next run.
 Mode and volume selection work before F8 and while paused; the HUD updates immediately.
-Diagnostics and snapshots: unassigned by default.
+Write logs and snapshots: unassigned by default. The Write logs key controls the GUI logging toggle; snapshots require logging to be enabled.
 All keys can be remapped.
 Volume: one batch of 44, or a run based on free pallet slots at start, up to 176 packages.
 Speed: 10–100%.
@@ -45,7 +45,7 @@ Lower filled carton layers are shown using visual-only meshes; native contents a
 
 FEEDBACK
 Include the mod/game/MSCLoader versions, mode/volume/speed, reproduction steps, expected/actual result, other factory-related mods and whether it happened after a reload.
-Logs are stored in AutoWorkerLogs beside the DLL, normally Mods/AutoWorkerLogs. Assign an optional diagnostic key if detailed recording is needed; disable it after reproducing the issue. Screenshots or videos are useful.
+File logging is off by default; no AutoWorkerLogs folder or new file is created while opted out, including for snapshots/errors. Enable Write logs (diagnostics) in the mod settings to record a diagnostic session in Mods/AutoWorkerLogs beside the DLL. Turn it off after reproducing the issue; the file closes immediately. The toggle is saved by MSCLoader. Screenshots or videos are useful.
 Compatibility with other factory-job mods is not fully tested. Manual modes need your participation and do not guarantee zero supervisor-recorded idle time.
 
 UNINSTALL

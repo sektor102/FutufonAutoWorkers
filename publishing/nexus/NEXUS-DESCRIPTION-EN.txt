@@ -16,6 +16,7 @@ Main features
 - Modes 3/4 leave finished packages on the floor to your left in 11 towers of up to 4. The assembly lid opens left; the shipping carton sits farther back on your right with clearance for its open flaps.
 - One carton holds 44 small packages. Fill Pallet produces up to four cartons/176 packages, depending on free slots.
 - Adjustable speed and soft pause/resume.
+- Settings, option labels, help and keybinding names use the selected Russian/English language. File logs are off by default; enable Write logs (diagnostics) in mod settings when needed.
 - Russian/English HUD: progress, stock, shift times, overtime balance and reminders.
 Public test release; feedback and bug reports are welcome.
 

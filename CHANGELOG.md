@@ -1,5 +1,17 @@
 # Changes
 
+## 1.2.3 — 11 October 2026
+
+- File logging is off by default. Enable Write logs (diagnostics) in the mod's
+  MSCLoader settings when needed; turning it off closes the file immediately.
+- No AutoWorkerLogs directory or session file is created while opted out,
+  including for snapshots or errors. Enabling it records full diagnostics.
+- Settings names, language choices, mode/volume values, help and keybinding
+  names follow the selected Russian/English language without bilingual labels.
+- Language changes retain saved setting IDs, values and assigned keys.
+- Build and checks pass for file creation/disposal, opt-in/out, session reopening,
+  the actual language callback and retained UI values. Live menu validation remains needed.
+
 ## 1.2.2 — 11 October 2026
 
 - Modes 3/4 place finished packages in eleven towers of up to four on the floor

@@ -1,6 +1,8 @@
-Version 1.2.2 is available for public testing. Modes 3/4 now use eleven floor towers of four packages to your left. The shipping carton sits farther back on your right, with clearance for flaps and table supports. The assembly lid opens left, clear of supplies. The four work modes were previously tested in-game in 1.1.1; build and automated geometry/scheduler checks pass, while the new physical placement needs in-game testing.
+Version 1.2.3 is available for public testing. File logging is off by default; enable Write logs (diagnostics) in the mod settings when needed and turn it off afterwards. Mod settings, option labels, help and keybinding names now follow the selected Russian/English language. Floor towers, rear carton placement and the left-opening assembly lid from 1.2.2 remain included. Build and automated logging/UI/scheduler checks pass; live menu testing is welcome.
 
 Especially useful feedback:
+- Switching languages without losing settings or keybindings.
+- No new logs with logging off; creating and closing a session with the GUI toggle.
 - Floor towers at workbenches next to colleagues, including all 44 packages and removal/reuse of tower space.
 - Large-carton clearance from table supports and the left-opening assembly lid.
 - Switching between automatic packing and loose stacks during a run.

@@ -2,12 +2,12 @@
 
 ![Futufon AutoWorker](publishing/nexus/FutufonAutoWorker-header-v2-1300x372.png)
 
-Version **1.2.2 for MSCLoader** automates factory packaging with four selectable
+Version **1.2.3 for MSCLoader** automates factory packaging with four selectable
 modes, configurable volume and speed, soft pause, live mode switching and a
 Russian/English HUD. The default F8 run assembles 44 complete packages, fills
 a shipping carton, delivers it to a player pallet and stops.
 
-**[Download 1.2.2](dist/FutufonAutoWorker-1.2.2.zip)** ·
+**[Download 1.2.3](dist/FutufonAutoWorker-1.2.3.zip)** ·
 **[Installation and controls](INSTALL.md)** ·
 **[Инструкция на русском](FutufonAutoWorkerMscModLoader/README.md)** ·
 **[Changes](CHANGELOG.md)**
@@ -48,8 +48,8 @@ Speed is adjustable from 10% to 100%; the default 100% preserves the original pa
 | F6 | Show / hide the HUD |
 | Next mode — assign in MSCLoader keybindings | Cycle 1 → 2 → 3 → 4 → 1 |
 | Batch volume — assign in MSCLoader keybindings | One carton ↔ fill one pallet |
-| Diagnostic recording — unassigned | Toggle detailed file logging |
-| State snapshot — unassigned | Save one full snapshot to file |
+| Write logs — unassigned | Toggle the diagnostic logging setting |
+| State snapshot — unassigned | Save a full snapshot when logging is enabled |
 
 All keys can be remapped. Diagnostic keys F7/F9 from the previous release are
 no longer assigned by default, and their old bindings are not imported.
@@ -64,6 +64,8 @@ stacked packages remain where they were placed; they are not automatically
 moved into a carton. A mixed run can include stacks and a partial carton.
 
 Volume is fixed for a run. Language, speed and HUD visibility update live.
+All mod setting labels, language choices, mode/volume values, help and keybinding
+names use the selected language. Changing it keeps values and assigned keys.
 Moving away during assembly requests a soft pause. Players can walk away
 while waiting for manual supplies or delivery.
 
@@ -103,8 +105,10 @@ idle time. Other factory-job mods have not been fully tested.
 
 The mod uses existing PlayMaker actions for supplies, assembly, packing and
 delivery. Attendance, pay and supervisor decisions use the game's own logic.
-Logs are stored in `AutoWorkerLogs` beside the DLL, normally
-`Mods/AutoWorkerLogs/`. See the
+File logs are off by default. Enable **Write logs (diagnostics)** in the mod
+settings to create a diagnostic session in `Mods/AutoWorkerLogs/` beside the DLL.
+Turning it off closes the file immediately; snapshots and errors do not create
+files while opted out. MSCLoader saves the toggle. See the
 [public test checklist](publishing/nexus/PUBLIC-TEST-CHECKLIST.txt) for feedback.
 
 ## Build and validation
@@ -122,7 +126,10 @@ reference assembly in `FutufonAutoWorkerMscModLoader/lib/MSCLoader.dll` or pass
 `-MSCLoaderPath`. Install MSCLoader in the game as well. Only the built mod DLL
 goes into Mods.
 
-Controlled geometry checks cover left/rear placement, stable floor, footprint
+Logging checks cover no-directory default use, opt-in/out, session reopening
+and file disposal. UI checks exercise the actual language callback with simulated
+controls, retaining values, keys and callback arrays. The live MSCLoader menu
+still needs in-game testing. Controlled geometry checks cover left/rear placement, stable floor, footprint
 edges, obstacles, table supports, open flaps and the left-opening lid.
 Checks also exercise the actual scheduling iterator with simulated physical actions:
 all 16 mode transitions, mixed outputs, partial/full cartons, pause/resume and

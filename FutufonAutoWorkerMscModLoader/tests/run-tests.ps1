@@ -34,6 +34,25 @@ Add-Type -Path (Join-Path $PSScriptRoot '..\SessionLogger.cs'), (Join-Path $PSSc
 [WorkShiftInfoTests]::Run()
 [FactoryRunTests]::Run()
 [SessionLoggerTests]::Run()
-# Compile the geometry checks separately from the scheduler's game-object stand-ins.
-Add-Type -Path (Join-Path $PSScriptRoot '..\FloorLayout.cs'), (Join-Path $PSScriptRoot 'FloorLayoutTests.cs')
-[FloorLayoutTests]::Run()
+# Compile UI/geometry checks separately from the scheduler's game-object stand-ins.
+function Get-ControlSection([string]$start, [string]$end) {
+    $taskStart = $taskControls.IndexOf($start, [StringComparison]::Ordinal)
+    $taskEnd = $taskControls.IndexOf($end, $taskStart, [StringComparison]::Ordinal)
+    if ($taskStart -lt 0 -or $taskEnd -le $taskStart) { throw "Controls section not found: $start" }
+    $taskControls.Substring($taskStart, $taskEnd - $taskStart)
+}
+$taskUiHarness = [IO.Path]::Combine([IO.Path]::GetTempPath(), 'autoworker-ui-tests-' + [Guid]::NewGuid().ToString('N') + '.cs')
+try {
+    $taskLanguage = (Get-ControlSection 'private void UpdateSettingsLanguage()' 'private void ModeSettingChanged()').Replace('WorkerText.Pick', 'MenuText.Pick')
+    $taskLogging = (Get-ControlSection 'private void LoggingSettingChanged()' 'private void Mod_OnLoad()') +
+        (Get-ControlSection 'private void OpenSessionLog()' 'private void Mod_OnGUI()')
+    $taskLogging = $taskLogging.Replace('Path.GetDirectoryName(GetType().Assembly.Location)', '_testDirectory')
+    $taskLogging = $taskLogging.Replace('LogKind', 'UiLogKind')
+    # Rename the production logger in this isolated harness to avoid Add-Type's duplicate-type restriction.
+    $taskUiLogger = (Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\SessionLogger.cs') -Raw).Replace('SessionLogger', 'UiSessionLogger').Replace('LogKind', 'UiLogKind')
+    [IO.File]::WriteAllText($taskUiHarness, "using System; using System.IO; using System.Text; using MSCLoader;`nnamespace FutufonAutoWorkerMscModLoader { internal partial class SettingsUiHarness { $taskLanguage } internal partial class LoggingUiHarness { $taskLogging } }")
+    [IO.File]::AppendAllText($taskUiHarness, "`n" + $taskUiLogger.Replace('using System;', ''))
+    Add-Type -Path (Join-Path $PSScriptRoot '..\FloorLayout.cs'), (Join-Path $PSScriptRoot 'FloorLayoutTests.cs'), (Join-Path $PSScriptRoot '..\SettingsLocalization.cs'), (Join-Path $PSScriptRoot 'SettingsUiTests.cs'), $taskUiHarness
+    [FloorLayoutTests]::Run()
+    [SettingsUiTests]::Run()
+} finally { Remove-Item -LiteralPath $taskUiHarness -ErrorAction SilentlyContinue }

@@ -1,4 +1,4 @@
-# Futufon AutoWorker 1.2.2
+# Futufon AutoWorker 1.2.3
 
 Requires My Winter Car and
 [MSCLoader for My Winter Car](https://www.nexusmods.com/mywintercar/mods/3).
@@ -7,11 +7,13 @@ Built against MSCLoader 1.4.2 for MWC; other loaders have not been tested.
 1. Close the game.
 2. Copy `Mods/FutufonAutoWorkerMscModLoader.dll` from the archive into your
    active MSCLoader Mods folder, replacing the previous mod DLL when updating.
-3. Restart and load a save. The HUD displays version `1.2.2`.
+3. Restart and load a save. The HUD displays version `1.2.3`.
 4. Clock in at Futufon, stand by a clear work table and look down at the tabletop.
 5. Open **MSCLoader → Futufon AutoWorker**, choose settings and press **F8**.
 
 The interface defaults to Russian. Select English in the Language setting.
+Mod settings, option labels, help and keybinding names change with the language;
+values and assigned keys are retained.
 
 ## Modes
 
@@ -38,8 +40,8 @@ towers pause work until packages are removed.
 | F6 | Show / hide HUD |
 | Next automation mode — assign a key | Cycle 1 → 2 → 3 → 4 → 1 |
 | Batch volume — assign a key | One carton ↔ fill one pallet |
-| Diagnostic recording — unassigned | Toggle detailed logging |
-| State snapshot — unassigned | Append one full snapshot |
+| Write logs — unassigned | Toggle the diagnostic logging setting |
+| State snapshot — unassigned | Append a full snapshot while logging is enabled |
 
 Select mode/volume before F8 or while paused; the HUD shows both immediately.
 Volume changes apply to the next run. Assign keys in MSCLoader keybindings.
@@ -83,14 +85,17 @@ attendance or supervisor decisions.
 
 ## Feedback and removal
 
-Version 1.2.2 is a public test release. All four modes in 1.1.1 were tested
+Version 1.2.3 is a public test release. All four modes in 1.1.1 were tested
 in-game by the user; the new floor placement, assembly orientation, transitions,
 carton graphics and expanded HUD need wider in-game testing. Automated
 scheduler/model and controlled geometry checks pass. Compatibility with
 other factory-job mods is not fully tested.
 
-Logs: `Mods/AutoWorkerLogs/`, beside the DLL. Assign an optional diagnostic
-key if detailed logging is needed, reproduce the issue and turn recording off.
+File logs are off by default. Enable **Write logs (diagnostics)** in
+**MSCLoader → Futufon AutoWorker** to create a diagnostic session in
+`Mods/AutoWorkerLogs/`. Reproduce the issue, then turn the toggle off to close
+the file. Snapshots and errors create no files while opted out. The optional
+Write logs key controls this same saved toggle.
 Include mod/game/MSCLoader versions, mode/volume/speed, reproduction steps and
 other installed factory mods in a report.
 
