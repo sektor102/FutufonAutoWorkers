@@ -1,6 +1,8 @@
-Version 1.2.1 is available for public testing. The four work modes were previously tested in-game in 1.1.1; this release fixes pre-start mode selection and manual carton counts, adds a volume hotkey and labels idle minutes. Carton-layer visuals and shift information remain included.
+Version 1.2.2 is available for public testing. Modes 3/4 now use eleven floor towers of four packages to your left. The shipping carton sits farther back on your right, with clearance for flaps and table supports. The assembly lid opens left, clear of supplies. The four work modes were previously tested in-game in 1.1.1; build and automated geometry/scheduler checks pass, while the new physical placement needs in-game testing.
 
 Especially useful feedback:
+- Floor towers at workbenches next to colleagues, including all 44 packages and removal/reuse of tower space.
+- Large-carton clearance from table supports and the left-opening assembly lid.
 - Switching between automatic packing and loose stacks during a run.
 - Pausing on the last package and resuming.
 - Returning to a partially packed carton after saving and reloading.

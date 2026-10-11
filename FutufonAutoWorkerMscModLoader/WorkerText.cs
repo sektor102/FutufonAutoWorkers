@@ -51,7 +51,7 @@ namespace FutufonAutoWorkerMscModLoader
                 case WorkerPhase.WaitingStock: return Pick(ru, "Принеси на стол: ", "Bring to the table: ") + Supply(ru, detail);
                 case WorkerPhase.WaitingOpenStock: return Pick(ru, "Открой коробку: ", "Open supply box: ") + Supply(ru, detail);
                 case WorkerPhase.WaitingDelivery: return Pick(ru, "Отнеси полную коробку на палету", "Carry the full carton to a pallet");
-                case WorkerPhase.WaitingStacks: return Pick(ru, "Освободи место в стопках", "Clear space in the output stacks");
+                case WorkerPhase.WaitingStacks: return Pick(ru, "Убери коробки из башенок слева на полу", "Clear packages from the floor towers to your left");
                 case WorkerPhase.Returning: return Pick(ru, "Вернись к рабочему столу", "Return to the workstation");
                 case WorkerPhase.Paused: return Pick(ru, "Пауза. F8 — продолжить", "Paused. F8 resumes");
                 case WorkerPhase.Error: return Pick(ru, "Сборка остановлена. Подробности в логе", "Assembly stopped. See the log for details");
@@ -91,10 +91,10 @@ namespace FutufonAutoWorkerMscModLoader
                 return Pick(ru, "Убери детали с участка сборки", "Clear loose parts from the assembly area");
             if (detail.Contains("No free player pallet"))
                 return Pick(ru, "На палете нет места — освободи её", "No free pallet slots — clear a pallet");
-            if (detail.Contains("four package stacks"))
-                return Pick(ru, "Освободи стол рядом для четырёх стопок", "Clear nearby table space for four stacks");
+            if (detail.Contains("floor space to the left"))
+                return Pick(ru, "Освободи пол слева для башенок по 4", "Clear floor space to your left for towers of four");
             if (detail.Contains("No floor space"))
-                return Pick(ru, "Рядом нет места для большой коробки", "No floor space nearby for the shipping carton");
+                return Pick(ru, "Освободи пол справа и чуть сзади для большой коробки", "Clear floor space to your right and behind for the shipping carton");
             if (detail.Contains("existing full carton"))
                 return Pick(ru, "Сначала отнеси готовую большую коробку на палету", "Deliver the existing full carton to a pallet first");
             if (detail.Contains("not found nearby"))

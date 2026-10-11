@@ -15,7 +15,7 @@ namespace FutufonAutoWorkerMscModLoader
         public override string ID => "FutufonAutoWorker";
         public override string Name => "Futufon AutoWorker";
         public override string Author => "2Baikal";
-        public override string Version => "1.2.1";
+        public override string Version => "1.2.2";
         public override string Description => WorkerText.Pick(Russian,
             "Автосборка на заводе: четыре режима, 44 коробки или палета, мягкая пауза и компактная панель.",
             "Factory assembly: four modes, 44 packages or one pallet, soft pause and a compact HUD.");
@@ -117,11 +117,11 @@ namespace FutufonAutoWorkerMscModLoader
                     description = WorkerText.Pick(Russian, "Компоненты и упаковка автоматически. Полную коробку отнеси сам.",
                         "Automatic supplies and packing. Carry the full carton yourself."); break;
                 case AutomationMode.LoosePackages:
-                    description = WorkerText.Pick(Russian, "Автопополнение. Готовые коробки — четыре стопки по 11. Упаковка вручную.",
-                        "Automatic restocking. Four stacks of 11 finished packages. Pack them manually."); break;
+                    description = WorkerText.Pick(Russian, "Автопополнение. Готовые коробки — 11 башенок по 4 на полу слева. Упаковка вручную.",
+                        "Automatic restocking. Eleven towers of four packages on the floor to your left. Pack them manually."); break;
                 case AutomationMode.ManualSupplies:
-                    description = WorkerText.Pick(Russian, "Принеси и открой компоненты на столе. Готовые коробки — стопками; пополнение и упаковка вручную.",
-                        "Bring and open supplies on the table. Finished packages go into stacks; restocking and packing are manual."); break;
+                    description = WorkerText.Pick(Russian, "Принеси и открой компоненты на столе. Готовые коробки — башенками по 4 на полу слева; пополнение и упаковка вручную.",
+                        "Bring and open supplies on the table. Packages form towers of four on the floor to your left; restocking and packing are manual."); break;
                 default:
                     description = WorkerText.Pick(Russian, "Автопополнение, сборка, упаковка по 44 и переноска на палету.",
                         "Automatic restocking, assembly, packing 44 packages and pallet delivery."); break;

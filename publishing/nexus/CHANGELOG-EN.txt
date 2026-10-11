@@ -1,3 +1,11 @@
+1.2.2 — 11 October 2026
+
+- Modes 3 and 4 now place finished packages on the floor to your left in 11 towers of up to 4, keeping the full 44-package capacity.
+- The shipping carton is placed farther back on your right. Its full footprint, open flaps, obstacles and visible table supports are checked before placement.
+- The assembly package turns 90 degrees from its previous orientation: its lid opens left, clear of the supply containers.
+- Placement rejects tables, loose items, uneven floor and obstructed footprints. Clear-floor hints explain where space is needed.
+- Build, scheduler regressions and controlled geometry checks passed. Physical placement and stacking still need in-game validation.
+
 1.2.1 — 8 October 2026
 
 - Select modes before F8 and while paused; the HUD shows the choice immediately.

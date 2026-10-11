@@ -2,19 +2,20 @@
 
 ![Futufon AutoWorker](publishing/nexus/FutufonAutoWorker-header-v2-1300x372.png)
 
-Version **1.2.1 for MSCLoader** automates factory packaging with four selectable
+Version **1.2.2 for MSCLoader** automates factory packaging with four selectable
 modes, configurable volume and speed, soft pause, live mode switching and a
 Russian/English HUD. The default F8 run assembles 44 complete packages, fills
 a shipping carton, delivers it to a player pallet and stops.
 
-**[Download 1.2.1](dist/FutufonAutoWorker-1.2.1.zip)** ·
+**[Download 1.2.2](dist/FutufonAutoWorker-1.2.2.zip)** ·
 **[Installation and controls](INSTALL.md)** ·
 **[Инструкция на русском](FutufonAutoWorkerMscModLoader/README.md)** ·
 **[Changes](CHANGELOG.md)**
 
 This is a public test release. The four modes in 1.1.1 were tested in-game by
-the user. The new transitions, carton-layer graphics and expanded HUD in 1.2.1
-pass automated checks and still need wider in-game testing.
+the user. The new floor placement, left-opening assembly lid, transitions,
+carton-layer graphics and expanded HUD pass automated checks and still need
+wider in-game testing.
 
 ## Modes and settings
 
@@ -24,13 +25,15 @@ Open **MSCLoader → Futufon AutoWorker**.
 | --- | --- | --- | --- |
 | 1. Full cycle | Automatic pickup/refill | Automatically packed | Delivered to pallet |
 | 2. Manual delivery | Automatic pickup/refill | Automatically packed | Carry it yourself |
-| 3. Loose packages | Automatic pickup/refill | Four stacks of up to 11 | Pack and deliver manually |
-| 4. Manual supplies | Bring and open them yourself | Four stacks of up to 11 | Pack and deliver manually |
+| 3. Loose packages | Automatic pickup/refill | 11 floor towers of up to 4, on your left | Pack and deliver manually |
+| 4. Manual supplies | Bring and open them yourself | 11 floor towers of up to 4, on your left | Pack and deliver manually |
 
 Mode 4 leaves supply containers where the player placed them. Missing or empty
 supplies pause production until replacements are brought and opened on the
 same table. Loose-package modes wait when the output stacks are full; these
-are ordinary pickable game objects.
+are ordinary pickable game objects. The 11 towers hold 44 packages in total.
+The assembly lid opens left. Shipping cartons sit farther back on your right,
+with clearance checked for the open flaps and table supports.
 
 Volume selects **one batch of 44** or the **initially free slots on one pallet**,
 up to four batches/176 packages. Full cycle uses the same target pallet.
@@ -92,8 +95,9 @@ Close the game and copy the DLL from the ZIP's `Mods` directory into your active
 MSCLoader Mods folder. Install MSCLoader separately. Load a save, clock in,
 stand at a clear Futufon work table, look down at the tabletop and press F8.
 
-Leave table space for assembly, supplies and stacks; carton modes also need
-floor space. Automatic delivery requires free slots on a player pallet.
+Leave table space for assembly and supplies. Modes 3/4 need clear floor space
+to your left for eleven towers of four; carton modes need space on your right
+and behind you for the shipping carton. Automatic delivery requires free slots on a player pallet.
 Manual modes need player participation and do not guarantee zero recorded
 idle time. Other factory-job mods have not been fully tested.
 
@@ -118,7 +122,9 @@ reference assembly in `FutufonAutoWorkerMscModLoader/lib/MSCLoader.dll` or pass
 `-MSCLoaderPath`. Install MSCLoader in the game as well. Only the built mod DLL
 goes into Mods.
 
-Checks exercise the actual scheduling iterator with simulated physical actions:
+Controlled geometry checks cover left/rear placement, stable floor, footprint
+edges, obstacles, table supports, open flaps and the left-opening lid.
+Checks also exercise the actual scheduling iterator with simulated physical actions:
 all 16 mode transitions, mixed outputs, partial/full cartons, pause/resume and
 44/176 limits. New checks cover the actual selection hotkey handler, manual
 additions before start/while paused and own-stack transfers. They also cover saved shift times, signed overtime, Tuesday

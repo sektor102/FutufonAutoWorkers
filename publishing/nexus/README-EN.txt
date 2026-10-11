@@ -1,9 +1,9 @@
-FUTUFON AUTOWORKER 1.2.1
+FUTUFON AUTOWORKER 1.2.2
 For My Winter Car with MSCLoader for My Winter Car.
 Author: 2Baikal. MIT license.
 
 PUBLIC TEST RELEASE
-The four work modes in 1.1.1 were tested in-game by the author. 1.2.1 passes automated scheduling and model checks. The new live mode transitions, lower-layer graphics and expanded HUD still need wider in-game testing.
+The four work modes in 1.1.1 were tested in-game by the author. 1.2.2 passes automated scheduling, model and controlled geometry checks. The new floor placement, left-opening assembly lid, live mode transitions, lower-layer graphics and expanded HUD still need wider in-game testing.
 
 INSTALL
 Close the game. Copy Mods/FutufonAutoWorkerMscModLoader.dll from this archive into your active MSCLoader Mods folder. Replace the previous DLL when updating. Install MSCLoader separately:
@@ -17,10 +17,10 @@ The default interface language is Russian. Select English in the Language settin
 MODES
 1. Full cycle: automatic supplies, assembly, carton packing and pallet delivery.
 2. Manual delivery: automatic supplies, assembly and carton packing; carry the full carton yourself.
-3. Loose packages: automatic supplies and assembly; four output stacks of up to 11. Pack and deliver manually.
-4. Manual supplies: bring and open supply containers on the same table; assembly into stacks is automatic. Replenishing, packing and delivery are manual.
+3. Loose packages: automatic supplies and assembly; eleven floor towers of up to four, to your left. Pack and deliver manually.
+4. Manual supplies: bring and open supply containers on the same table; assembly into floor towers of four to your left is automatic. Replenishing, packing and delivery are manual.
 
-Leave clear space for assembly, supply containers and output stacks, with floor space for carton modes and free player-pallet slots for automatic delivery.
+Leave clear table space for assembly and supply containers, and floor space to your left for eleven towers (44 packages). Carton modes place the large box farther back on your right, with room for its open flaps. The assembly lid opens left. Automatic delivery needs free player-pallet slots.
 
 CONTROLS AND SETTINGS
 F8: start, soft pause, resume.

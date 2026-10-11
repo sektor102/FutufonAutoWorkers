@@ -34,3 +34,6 @@ Add-Type -Path (Join-Path $PSScriptRoot '..\SessionLogger.cs'), (Join-Path $PSSc
 [WorkShiftInfoTests]::Run()
 [FactoryRunTests]::Run()
 [SessionLoggerTests]::Run()
+# Compile the geometry checks separately from the scheduler's game-object stand-ins.
+Add-Type -Path (Join-Path $PSScriptRoot '..\FloorLayout.cs'), (Join-Path $PSScriptRoot 'FloorLayoutTests.cs')
+[FloorLayoutTests]::Run()

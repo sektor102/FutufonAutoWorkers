@@ -85,8 +85,8 @@ namespace FutufonAutoWorkerMscModLoader
             PrepareTableFrame(hit.point.y);
             // Factory models use local +Z as their top. Their XY plane belongs on the table.
             _rotation = Quaternion.LookRotation(_forward, Vector3.up) * Quaternion.Euler(-90f, 0f, 0f);
-            // Rotate the small cardboard package around world up, keeping its top on top.
-            _packageRotation = Quaternion.AngleAxis(180f, Vector3.up) * _rotation;
+            // The open lid points left, clear of the supply containers behind the assembly area.
+            _packageRotation = Quaternion.AngleAxis(FloorLayout.PackageYaw, Vector3.up) * _rotation;
 
             foreach (var supply in _supplies)
             {
@@ -392,24 +392,17 @@ namespace FutufonAutoWorkerMscModLoader
 
         private void PrepareStacks()
         {
-            foreach (float side in new[] { 1.15f, 1.51f, 1.87f, 2.23f, -1.15f, -1.51f, -1.87f, -2.23f })
+            var prepared = new List<PackageStack>();
+            foreach (var offset in FloorLayout.StackOffsets())
             {
                 Vector3 surface;
-                try
-                {
-                    surface = SurfaceAt(side, -0.13f);
-                    foreach (int x in new[] { -1, 1 }) foreach (int z in new[] { -1, 1 })
-                        SurfaceAt(side + x * 0.165f, -0.13f + z * 0.11f);
-                }
-                catch (InvalidOperationException) { continue; }
-                bool occupied = false;
-                foreach (var collider in Physics.OverlapSphere(surface + Vector3.up * 0.15f, 0.18f))
-                    if (!collider.isTrigger && !HasTableAncestor(collider.transform)) { occupied = true; break; }
-                if (occupied) continue;
-                _stacks.Add(new PackageStack(surface));
-                if (_stacks.Count == 4) return;
+                Vector3 position = _cameraStart + _right * offset.x + _forward * offset.z;
+                var footprint = FloorLayout.WorldBounds(FloorLayout.TowerBounds, _right, _forward);
+                if (!FloorLayout.TrySurface(position, _origin.y, footprint, null, out surface)) continue;
+                prepared.Add(new PackageStack(surface));
+                if (prepared.Count == FloorLayout.StackCount) { _stacks.AddRange(prepared); return; }
             }
-            throw new InvalidOperationException("Clear space alongside the work area for four package stacks.");
+            throw new InvalidOperationException("Clear floor space to the left for package towers.");
         }
 
         private PackageStack AvailableStack()
@@ -418,7 +411,7 @@ namespace FutufonAutoWorkerMscModLoader
             {
                 stack.Packages.RemoveAll(item => item == null || !item.activeInHierarchy ||
                     Vector3.ProjectOnPlane(item.transform.position - stack.Surface, Vector3.up).magnitude > 0.18f);
-                if (stack.Packages.Count < 11) return stack;
+                if (stack.Packages.Count < FloorLayout.StackHeight) return stack;
             }
             return null;
         }
@@ -445,7 +438,7 @@ namespace FutufonAutoWorkerMscModLoader
             yield return PlaceOnSurface(package, surface);
             stack.Packages.Add(package);
             _unpackedOutput.Add(package);
-            _log("CYCLE STACKED complete package; stack height=" + stack.Packages.Count + "/11");
+            _log("CYCLE STACKED complete package; stack height=" + stack.Packages.Count + "/" + FloorLayout.StackHeight);
         }
 
         private IEnumerator PrepareShippingBox()
@@ -460,6 +453,7 @@ namespace FutufonAutoWorkerMscModLoader
                     "new shipping box initialization");
             }
             ValidateShippingCounts();
+            _shippingSurface = FindShippingSurface();
             HoldBodies(_shippingBox, _shippingBodies);
             yield return PlaceOnSurface(_shippingBox, _shippingSurface);
             _log("CYCLE shipping box ready: TotalPackages=" + RequiredInt(_shipping, "TotalPackages").Value +
@@ -587,16 +581,14 @@ namespace FutufonAutoWorkerMscModLoader
 
         private Vector3 FindShippingSurface()
         {
-            foreach (float side in new[] { 0.9f, -0.9f, 1.3f, -1.3f })
-                foreach (float forward in new[] { 0.1f, -0.5f })
-                {
-                    Vector3 position = _cameraStart + _right * side + _forward * forward;
-                    RaycastHit hit;
-                    if (Physics.Raycast(position + Vector3.up * 0.2f, Vector3.down, out hit, 3f) &&
-                        hit.normal.y >= 0.8f && hit.point.y < _origin.y - 0.3f && !HasTableAncestor(hit.collider.transform))
-                        return hit.point;
-                }
-            throw new InvalidOperationException("No floor space beside the table for the shipping box.");
+            var footprint = FloorLayout.ShippingBounds(_shippingBox, _rotation);
+            foreach (var offset in FloorLayout.ShippingOffsets())
+            {
+                Vector3 position = _cameraStart + _right * offset.x + _forward * offset.z;
+                Vector3 surface;
+                if (FloorLayout.TrySurface(position, _origin.y, footprint, _shippingBox, out surface)) return surface;
+            }
+            throw new InvalidOperationException("No floor space behind the player for the shipping box.");
         }
 
         private IEnumerator PrepareSupply(Supply supply)
@@ -781,6 +773,8 @@ namespace FutufonAutoWorkerMscModLoader
                 if (!found || collider.bounds.min.y < bottom) bottom = collider.bounds.min.y;
                 found = true;
             }
+            if (item == _shippingBox)
+                bottom = Mathf.Min(bottom, item.transform.position.y + FloorLayout.ItemBounds(item, item.transform.rotation).min.y);
             Vector3 final = item.transform.position;
             final.y += surface.y + 0.01f - bottom;
             item.transform.position = final;

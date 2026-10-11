@@ -1,4 +1,4 @@
-# Futufon AutoWorker 1.2.1
+# Futufon AutoWorker 1.2.2
 
 Requires My Winter Car and
 [MSCLoader for My Winter Car](https://www.nexusmods.com/mywintercar/mods/3).
@@ -7,7 +7,7 @@ Built against MSCLoader 1.4.2 for MWC; other loaders have not been tested.
 1. Close the game.
 2. Copy `Mods/FutufonAutoWorkerMscModLoader.dll` from the archive into your
    active MSCLoader Mods folder, replacing the previous mod DLL when updating.
-3. Restart and load a save. The HUD displays version `1.2.1`.
+3. Restart and load a save. The HUD displays version `1.2.2`.
 4. Clock in at Futufon, stand by a clear work table and look down at the tabletop.
 5. Open **MSCLoader → Futufon AutoWorker**, choose settings and press **F8**.
 
@@ -17,7 +17,7 @@ The interface defaults to Russian. Select English in the Language setting.
 
 1. **Full cycle:** automatic supplies, assembly, carton packing and pallet delivery.
 2. **Manual delivery:** automatic supplies, assembly and packing; carry the carton yourself.
-3. **Loose packages:** automatic supplies and assembly; four stacks of up to 11.
+3. **Loose packages:** automatic supplies and assembly; eleven towers of up to four on the floor to your left.
    Pack and deliver them manually.
 4. **Manual supplies:** bring and open supply containers; assembly into stacks is
    automatic. Replenishing supplies, carton packing and delivery remain manual.
@@ -25,8 +25,10 @@ The interface defaults to Russian. Select English in the Language setting.
 In mode 4, place all four supply containers on the same table within about
 1.6 m of the assembly area. Open the charger/manual boxes. If supplies are
 missing or empty, the worker waits for the replacements and your return to
-the workstation. Leave clear assembly and stack space on the table and floor
-space for carton modes. Full stacks pause work until packages are removed.
+the workstation. Leave clear assembly space on the table and floor space to
+your left for output towers. Carton modes place the large box farther back on
+your right, with room for its open flaps. The assembly lid opens left. Full
+towers pause work until packages are removed.
 
 ## Controls and settings
 
@@ -81,9 +83,10 @@ attendance or supervisor decisions.
 
 ## Feedback and removal
 
-Version 1.2.1 is a public test release. All four modes in 1.1.1 were tested
-in-game by the user; the new transitions, carton graphics and expanded HUD need
-wider in-game testing. Automated scheduler/model checks pass. Compatibility with
+Version 1.2.2 is a public test release. All four modes in 1.1.1 were tested
+in-game by the user; the new floor placement, assembly orientation, transitions,
+carton graphics and expanded HUD need wider in-game testing. Automated
+scheduler/model and controlled geometry checks pass. Compatibility with
 other factory-job mods is not fully tested.
 
 Logs: `Mods/AutoWorkerLogs/`, beside the DLL. Assign an optional diagnostic
