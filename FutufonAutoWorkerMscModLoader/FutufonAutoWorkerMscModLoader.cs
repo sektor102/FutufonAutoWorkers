@@ -15,7 +15,7 @@ namespace FutufonAutoWorkerMscModLoader
         public override string ID => "FutufonAutoWorker";
         public override string Name => "Futufon AutoWorker";
         public override string Author => "2Baikal";
-        public override string Version => "1.2.3";
+        public override string Version => "1.2.4";
         public override string Description => WorkerText.Pick(Russian,
             "Автосборка на заводе: четыре режима, 44 коробки или палета, мягкая пауза и компактная панель.",
             "Factory assembly: four modes, 44 packages or one pallet, soft pause and a compact HUD.");

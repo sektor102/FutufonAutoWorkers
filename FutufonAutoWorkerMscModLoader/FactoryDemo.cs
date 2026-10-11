@@ -398,7 +398,8 @@ namespace FutufonAutoWorkerMscModLoader
                 Vector3 surface;
                 Vector3 position = _cameraStart + _right * offset.x + _forward * offset.z;
                 var footprint = FloorLayout.WorldBounds(FloorLayout.TowerBounds, _right, _forward);
-                if (!FloorLayout.TrySurface(position, _origin.y, footprint, null, out surface)) continue;
+                if (!FloorLayout.TrySurface(position, _origin.y, footprint, null, out surface,
+                    reason => _log("FLOOR tower candidate " + position + ": " + reason))) continue;
                 prepared.Add(new PackageStack(surface));
                 if (prepared.Count == FloorLayout.StackCount) { _stacks.AddRange(prepared); return; }
             }
@@ -586,7 +587,8 @@ namespace FutufonAutoWorkerMscModLoader
             {
                 Vector3 position = _cameraStart + _right * offset.x + _forward * offset.z;
                 Vector3 surface;
-                if (FloorLayout.TrySurface(position, _origin.y, footprint, _shippingBox, out surface)) return surface;
+                if (FloorLayout.TrySurface(position, _origin.y, footprint, _shippingBox, out surface,
+                    reason => _log("FLOOR carton candidate " + position + ": " + reason))) return surface;
             }
             throw new InvalidOperationException("No floor space behind the player for the shipping box.");
         }

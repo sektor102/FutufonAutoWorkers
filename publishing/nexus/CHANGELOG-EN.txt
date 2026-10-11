@@ -1,3 +1,11 @@
+1.2.4 — 11 October 2026
+
+- Fix false floor-space errors on clear factory floor when placing shipping cartons and manual output towers.
+- Check actual mesh collision geometry instead of treating the combined floor/wall bounds as solid obstacles. Walls still block placement.
+- Reserve the space below native tabletops for their supports; static-batched renderer bounds no longer block unrelated floor.
+- Opt-in diagnostic logs explain rejected placement candidates. File logging remains off by default.
+- Build and regressions pass. Offline checks against the installed factory meshes reproduce and fix 27 false intersections while retaining wall rejection; live-game testing remains needed.
+
 1.2.3 — 11 October 2026
 
 - File logging is off by default. Enable Write logs (diagnostics) in the mod's

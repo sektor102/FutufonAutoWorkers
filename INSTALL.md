@@ -1,4 +1,4 @@
-# Futufon AutoWorker 1.2.3
+# Futufon AutoWorker 1.2.4
 
 Requires My Winter Car and
 [MSCLoader for My Winter Car](https://www.nexusmods.com/mywintercar/mods/3).
@@ -7,7 +7,7 @@ Built against MSCLoader 1.4.2 for MWC; other loaders have not been tested.
 1. Close the game.
 2. Copy `Mods/FutufonAutoWorkerMscModLoader.dll` from the archive into your
    active MSCLoader Mods folder, replacing the previous mod DLL when updating.
-3. Restart and load a save. The HUD displays version `1.2.3`.
+3. Restart and load a save. The HUD displays version `1.2.4`.
 4. Clock in at Futufon, stand by a clear work table and look down at the tabletop.
 5. Open **MSCLoader → Futufon AutoWorker**, choose settings and press **F8**.
 
@@ -85,7 +85,7 @@ attendance or supervisor decisions.
 
 ## Feedback and removal
 
-Version 1.2.3 is a public test release. All four modes in 1.1.1 were tested
+Version 1.2.4 is a public test release. All four modes in 1.1.1 were tested
 in-game by the user; the new floor placement, assembly orientation, transitions,
 carton graphics and expanded HUD need wider in-game testing. Automated
 scheduler/model and controlled geometry checks pass. Compatibility with

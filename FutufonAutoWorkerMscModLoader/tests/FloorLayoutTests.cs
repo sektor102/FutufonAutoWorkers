@@ -23,6 +23,8 @@ namespace UnityEngine
         public static Vector3 forward { get { return new Vector3(0, 0, 1); } }
         public float magnitude { get { return (float)Math.Sqrt(x * x + y * y + z * z); } }
         public static Vector3 Scale(Vector3 a, Vector3 b) { return new Vector3(a.x * b.x, a.y * b.y, a.z * b.z); }
+        public static float Dot(Vector3 a, Vector3 b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
+        public static Vector3 Cross(Vector3 a, Vector3 b) { return new Vector3(a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x); }
         public static Vector3 operator +(Vector3 a, Vector3 b) { return new Vector3(a.x + b.x, a.y + b.y, a.z + b.z); }
         public static Vector3 operator -(Vector3 a, Vector3 b) { return new Vector3(a.x - b.x, a.y - b.y, a.z - b.z); }
         public static Vector3 operator *(Vector3 a, float b) { return new Vector3(a.x * b, a.y * b, a.z * b); }
@@ -46,6 +48,7 @@ namespace UnityEngine
         public Vector3 min { get { return center - extents; } }
         public Vector3 max { get { return center + extents; } }
         public void Expand(Vector3 amount) { size = size + amount; }
+        public void SetMinMax(Vector3 lo, Vector3 hi) { center = (lo + hi) * 0.5f; size = hi - lo; }
         public bool Intersects(Bounds other)
         {
             return min.x <= other.max.x && max.x >= other.min.x && min.y <= other.max.y && max.y >= other.min.y &&
@@ -84,19 +87,33 @@ namespace UnityEngine
         public T[] GetComponentsInChildren<T>(bool includeInactive) { return typeof(T) == typeof(MeshFilter) ? (T[])(object)Meshes : (T[])(object)Boxes; }
     }
     public class Rigidbody { }
-    public class Collider
+    public class Collider : Object
     {
         public Transform transform = new Transform();
         public bool isTrigger;
+        public bool enabled = true;
         public Bounds bounds;
         public Rigidbody attachedRigidbody;
     }
     public class BoxCollider : Collider { public Vector3 center, size; }
+    public class MeshCollider : Collider { public Mesh sharedMesh; public bool convex; }
     public class Renderer : Object { public Transform transform = new Transform(); public bool enabled = true; public Bounds bounds; }
-    public class Mesh { public Bounds bounds; }
+    public class Mesh
+    {
+        public Bounds bounds;
+        public bool isReadable = true;
+        private Vector3[] _vertices = new Vector3[0];
+        public Vector3[] vertices { get { return (Vector3[])_vertices.Clone(); } set { _vertices = value; } }
+        public int[] triangles = new int[0];
+    }
     public class MeshFilter { public Mesh sharedMesh; public Transform transform = new Transform(); }
     public struct RaycastHit { public Collider collider; public float distance; public Vector3 point, normal; }
-    public static class Mathf { public static float Abs(float value) { return Math.Abs(value); } }
+    public static class Mathf
+    {
+        public static float Abs(float value) { return Math.Abs(value); }
+        public static float Min(float a, float b) { return Math.Min(a, b); }
+        public static float Max(float a, float b) { return Math.Max(a, b); }
+    }
     public static class Physics
     {
         internal static Func<Vector3, RaycastHit[]> Rays;
@@ -162,9 +179,45 @@ public static class FloorLayoutTests
         obstacle.isTrigger = true;
         Require(Fits(tower), "trigger volumes do not block output");
         Physics.Nearby = new[] { floor };
-        UnityEngine.Object.Scene = new[] { new Renderer { transform = new Transform { name = "leg", parent = table.transform }, bounds = obstacle.bounds } };
-        Require(!Fits(tower), "table supports without colliders still block placement");
+        var tabletop = new BoxCollider { transform = table.transform, bounds = new Bounds(new Vector3(0, 0.8f, 0), new Vector3(2, 0.15f, 1)) };
+        UnityEngine.Object.Scene = new[] { tabletop };
+        Require(!Fits(tower), "space below the native tabletop is reserved for visible supports without colliders");
+        tabletop.enabled = false;
+        Require(Fits(tower), "disabled table colliders do not reserve space");
+        tabletop.enabled = true;
+        tabletop.bounds = new Bounds(new Vector3(3, 0.8f, 0), new Vector3(2, 0.15f, 1));
+        UnityEngine.Object.Scene = new UnityEngine.Object[] { tabletop,
+            new Renderer { transform = table.transform, bounds = new Bounds(Vector3.zero, new Vector3(6000, 100, 6000)) } };
+        Require(Fits(tower), "static-batched table renderer bounds cannot block the entire factory");
         UnityEngine.Object.Scene = new UnityEngine.Object[0];
+
+        // One native factory mesh encloses both floor and walls. Its AABB contains empty working space.
+        var room = new MeshCollider { bounds = new Bounds(new Vector3(0, 1, 0), new Vector3(20, 2, 20)),
+            sharedMesh = new Mesh { vertices = new[] { new Vector3(-10, 0, -10), new Vector3(10, 0, -10), new Vector3(10, 0, 10),
+                new Vector3(-10, 0, 10), new Vector3(1, 0, -10), new Vector3(1, 2, -10), new Vector3(1, 2, 10), new Vector3(1, 0, 10) },
+                triangles = new[] { 0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7 } } };
+        Physics.Rays = origin => new[] { Hit(room, origin, 0) };
+        Physics.Nearby = new[] { room };
+        Require(Fits(tower), "combined floor/wall mesh bounds do not falsely occupy clear floor");
+        Require(Fits(new Bounds(new Vector3(0, 0.35f, 0), new Vector3(0.8f, 0.7f, 0.7f))),
+            "clear room accepts the whole open shipping carton");
+        room.transform.position = new Vector3(-1, 0, 0);
+        string rejection = null;
+        Vector3 unused;
+        Require(!FloorLayout.TrySurface(new Vector3(0, 1.6f, 0), 0.9f, tower, null, out unused, reason => rejection = reason) &&
+            rejection.Contains("solid obstacle"), "wall geometry inside a footprint remains blocked and explains why");
+        room.transform.position = new Vector3(0, 0.1f, 0);
+        Require(!Fits(tower), "raised mesh geometry intersecting the body remains blocked");
+        room.transform.position = Vector3.zero;
+        room.sharedMesh.isReadable = false;
+        Require(!Fits(tower), "unreadable meshes retain conservative obstacle checks");
+        room.sharedMesh.isReadable = true;
+        room.convex = true;
+        Require(!Fits(tower), "convex mesh solid interiors retain conservative obstacle checks");
+        var diagonal = new Mesh { vertices = new[] { new Vector3(0.3f, 0, 0), new Vector3(0, 0.3f, 0), new Vector3(0.3f, 0.3f, 0) }, triangles = new[] { 0, 1, 2 } };
+        Require(!FloorLayout.MeshIntersects(diagonal, new Transform(), new Bounds(Vector3.zero, new Vector3(0.2f, 0.2f, 0.2f))),
+            "a triangle's enclosing AABB alone does not block an empty corner");
+        Physics.Nearby = new[] { floor };
 
         var carton = new GameObject();
         var ownCollider = new Collider { transform = new Transform { parent = carton.transform }, bounds = tower };
@@ -185,6 +238,6 @@ public static class FloorLayoutTests
         // Before yaw, the package's local +Y lid extends toward the player (-forward).
         var lid = Quaternion.AngleAxis(FloorLayout.PackageYaw, Vector3.up) * (Vector3.forward * -1);
         Require(lid.x < -0.99f && Math.Abs(lid.z) < 0.001f, "the assembly lid opens left, away from supplies");
-        return "PASS: 44-package floor capacity, left/rear positions, nonoverlapping towers, footprint edges, table/obstacle rejection, trigger handling, own-carton exclusion, open flaps and left-opening lid";
+        return "PASS: clear combined floor/wall meshes, actual mesh obstacles, static-batched tables, table support zones, floor capacity/edges, triggers, own-carton exclusion, open flaps and left-opening lid";
     }
 }

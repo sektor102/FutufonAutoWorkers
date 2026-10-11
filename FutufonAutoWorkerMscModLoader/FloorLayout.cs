@@ -68,33 +68,87 @@ namespace FutufonAutoWorkerMscModLoader
         }
 
         internal static bool TrySurface(Vector3 position, float tableY,
-            Bounds footprint, GameObject ignore, out Vector3 surface)
+            Bounds footprint, GameObject ignore, out Vector3 surface, Action<string> rejected = null)
         {
             surface = Vector3.zero;
-            if (!TryFloor(position, tableY, ignore, out surface)) return false;
+            if (!TryFloor(position, tableY, ignore, out surface)) return Reject(rejected, "no fixed, level floor at centre");
             // Check the whole footprint, not just the centre ray. No table, ledge or loose box can support it.
             foreach (int x in new[] { -1, 1 }) foreach (int z in new[] { -1, 1 })
             {
                 Vector3 corner = position + Vector3.right * (footprint.center.x + x * footprint.extents.x) +
                     Vector3.forward * (footprint.center.z + z * footprint.extents.z);
                 Vector3 support;
-                if (!TryFloor(corner, tableY, ignore, out support) || Mathf.Abs(support.y - surface.y) > 0.025f) return false;
+                if (!TryFloor(corner, tableY, ignore, out support) || Mathf.Abs(support.y - surface.y) > 0.025f)
+                    return Reject(rejected, "unsupported or uneven footprint corner " + corner);
             }
 
             // Bounds are expressed in world axes after rotating the item. Keep the floor outside this box.
             var clearance = new Bounds(surface + footprint.center + Vector3.up * 0.01f, footprint.size);
             clearance.Expand(new Vector3(0.06f, 0f, 0.06f));
             foreach (var collider in Physics.OverlapSphere(clearance.center, clearance.extents.magnitude))
-                if (!collider.isTrigger && !Ignored(collider.transform, ignore) && clearance.Intersects(collider.bounds)) return false;
-
-            // Some table supports have visible meshes but no physical collider.
-            foreach (var component in UnityEngine.Object.FindObjectsOfType(typeof(Renderer)))
             {
-                var renderer = component as Renderer;
-                if (renderer != null && renderer.enabled && TableAncestor(renderer.transform) &&
-                    clearance.Intersects(renderer.bounds)) return false;
+                if (collider.isTrigger || Ignored(collider.transform, ignore) || !clearance.Intersects(collider.bounds)) continue;
+                var mesh = collider as MeshCollider;
+                // A factory collider contains the floor AND walls. Its enclosing box is not solid space.
+                if (mesh != null && !mesh.convex && mesh.sharedMesh != null && mesh.sharedMesh.isReadable &&
+                    !MeshIntersects(mesh.sharedMesh, mesh.transform, clearance)) continue;
+                return Reject(rejected, "solid obstacle " + collider.transform.name);
+            }
+
+            // Reserve the space below actual tabletops as well: their visible legs lack colliders.
+            // Renderer bounds are unusable here because static batching combines much of the scene.
+            foreach (var component in UnityEngine.Object.FindObjectsOfType(typeof(Collider)))
+            {
+                var table = component as Collider;
+                if (table == null || !table.enabled || table.isTrigger || !TableAncestor(table.transform)) continue;
+                var zone = table.bounds;
+                if (zone.max.y <= surface.y || zone.min.y > tableY + 0.3f) continue;
+                zone.SetMinMax(new Vector3(zone.min.x, surface.y, zone.min.z), zone.max);
+                zone.Expand(new Vector3(0.06f, 0f, 0.06f));
+                if (clearance.Intersects(zone)) return Reject(rejected, "space below table " + table.transform.name);
             }
             return true;
+        }
+
+        private static bool Reject(Action<string> rejected, string reason)
+        {
+            if (rejected != null) rejected(reason);
+            return false;
+        }
+
+        internal static bool MeshIntersects(Mesh mesh, Transform transform, Bounds box)
+        {
+            var vertices = mesh.vertices;
+            var triangles = mesh.triangles;
+            // Work around the candidate centre to retain precision at the factory's world coordinates.
+            for (int i = 0; i < vertices.Length; i++) vertices[i] = transform.TransformPoint(vertices[i]) - box.center;
+            for (int i = 0; i + 2 < triangles.Length; i += 3)
+                if (TriangleIntersects(vertices[triangles[i]], vertices[triangles[i + 1]], vertices[triangles[i + 2]], box.extents)) return true;
+            return false;
+        }
+
+        private static bool TriangleIntersects(Vector3 a, Vector3 b, Vector3 c, Vector3 extents)
+        {
+            // Triangle/box separating-axis test: three box axes, triangle normal and nine edge cross axes.
+            if (Separated(Vector3.right, a, b, c, extents) || Separated(Vector3.up, a, b, c, extents) ||
+                Separated(Vector3.forward, a, b, c, extents)) return false;
+            Vector3 ab = b - a, bc = c - b, ca = a - c;
+            if (Separated(Vector3.Cross(ab, bc), a, b, c, extents)) return false;
+            return !EdgeSeparated(ab, a, b, c, extents) && !EdgeSeparated(bc, a, b, c, extents) && !EdgeSeparated(ca, a, b, c, extents);
+        }
+
+        private static bool EdgeSeparated(Vector3 edge, Vector3 a, Vector3 b, Vector3 c, Vector3 extents)
+        {
+            return Separated(Vector3.Cross(edge, Vector3.right), a, b, c, extents) ||
+                Separated(Vector3.Cross(edge, Vector3.up), a, b, c, extents) ||
+                Separated(Vector3.Cross(edge, Vector3.forward), a, b, c, extents);
+        }
+
+        private static bool Separated(Vector3 axis, Vector3 a, Vector3 b, Vector3 c, Vector3 extents)
+        {
+            float p = Vector3.Dot(axis, a), q = Vector3.Dot(axis, b), r = Vector3.Dot(axis, c);
+            float radius = Mathf.Abs(axis.x) * extents.x + Mathf.Abs(axis.y) * extents.y + Mathf.Abs(axis.z) * extents.z;
+            return Mathf.Min(p, Mathf.Min(q, r)) > radius || Mathf.Max(p, Mathf.Max(q, r)) < -radius;
         }
 
         private static bool TryFloor(Vector3 position, float tableY, GameObject ignore, out Vector3 surface)

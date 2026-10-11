@@ -2,12 +2,12 @@
 
 ![Futufon AutoWorker](publishing/nexus/FutufonAutoWorker-header-v2-1300x372.png)
 
-Version **1.2.3 for MSCLoader** automates factory packaging with four selectable
+Version **1.2.4 for MSCLoader** automates factory packaging with four selectable
 modes, configurable volume and speed, soft pause, live mode switching and a
 Russian/English HUD. The default F8 run assembles 44 complete packages, fills
 a shipping carton, delivers it to a player pallet and stops.
 
-**[Download 1.2.3](dist/FutufonAutoWorker-1.2.3.zip)** ·
+**[Download 1.2.4](dist/FutufonAutoWorker-1.2.4.zip)** ·
 **[Installation and controls](INSTALL.md)** ·
 **[Инструкция на русском](FutufonAutoWorkerMscModLoader/README.md)** ·
 **[Changes](CHANGELOG.md)**
@@ -16,6 +16,9 @@ This is a public test release. The four modes in 1.1.1 were tested in-game by
 the user. The new floor placement, left-opening assembly lid, transitions,
 carton-layer graphics and expanded HUD pass automated checks and still need
 wider in-game testing.
+
+1.2.4 fixes false floor-space errors caused by combined factory collision bounds.
+Placement checks actual mesh geometry and keeps the space beneath tables clear.
 
 ## Modes and settings
 

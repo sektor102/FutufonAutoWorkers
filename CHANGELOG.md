@@ -1,5 +1,18 @@
 # Changes
 
+## 1.2.4 — 11 October 2026
+
+- Fix false "No floor space behind the player for the shipping box" failures
+  on clear factory floor, affecting carton placement and manual output towers.
+- Test actual triangles of readable non-convex mesh colliders instead of treating
+  the combined floor/wall bounding box as solid. Walls and real obstacles still block.
+- Reserve the area below native tabletop colliders for their visible supports;
+  static-batched renderer bounds no longer reject unrelated floor space.
+- Opt-in diagnostic logs now explain rejected floor candidates.
+- Build and automated regressions pass. Offline checks against the installed
+  factory collision meshes reproduce and resolve 27 false collisions while retaining
+  wall rejection. This is not a live-game physics test.
+
 ## 1.2.3 — 11 October 2026
 
 - File logging is off by default. Enable Write logs (diagnostics) in the mod's

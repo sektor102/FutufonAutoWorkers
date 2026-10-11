@@ -1,9 +1,9 @@
-FUTUFON AUTOWORKER 1.2.3
+FUTUFON AUTOWORKER 1.2.4
 For My Winter Car with MSCLoader for My Winter Car.
 Author: 2Baikal. MIT license.
 
 PUBLIC TEST RELEASE
-The four work modes in 1.1.1 were tested in-game by the author. 1.2.3 passes automated scheduling, model and controlled geometry checks. The new floor placement, left-opening assembly lid, live mode transitions, lower-layer graphics and expanded HUD still need wider in-game testing.
+The four work modes in 1.1.1 were tested in-game by the author. 1.2.4 passes automated scheduling, model and controlled geometry checks. It fixes false floor-space errors from combined factory floor/wall bounds; offline checks against the installed collision meshes resolve 27 false intersections while retaining wall rejection. The new floor placement, left-opening assembly lid, live mode transitions, lower-layer graphics and expanded HUD still need wider in-game testing.
 
 INSTALL
 Close the game. Copy Mods/FutufonAutoWorkerMscModLoader.dll from this archive into your active MSCLoader Mods folder. Replace the previous DLL when updating. Install MSCLoader separately:
